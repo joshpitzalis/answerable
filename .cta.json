@@ -1,5 +1,5 @@
 {
-  "projectName": "discord-rag",
+  "projectName": "answerable",
   "mode": "file-router",
   "typescript": true,
   "packageManager": "pnpm",

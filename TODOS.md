@@ -1,0 +1,5 @@
+- render code blocks in user questions
+- show questions i have answered
+- show leader board
+- keep rate limit in mind
+- shoudl be able to mark something answered becasue someine else might have answered it, but also - i might have responded but not actually answered.
