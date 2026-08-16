@@ -13,7 +13,16 @@
 	"observability": {
 		"enabled": true
 	},
-	"upload_source_maps": true
+	"upload_source_maps": true,
+	/**
+	 * Workers AI. Needs no provisioning — the binding alone is enough.
+	 * Used here to embed a query; the retrieval half of RAG comes later.
+	 */
+	"ai": {
+		"binding": "AI",
+		// AI inference always runs on Cloudflare, including in local dev.
+		"remote": true
+	}
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

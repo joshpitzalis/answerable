@@ -1,8 +1,12 @@
 import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
+import { AppShell } from '@astryxdesign/core/AppShell'
+import { Theme } from '@astryxdesign/core/theme'
+import { neutralTheme } from '@astryxdesign/theme-neutral/built'
 import Footer from '../components/Footer'
 import Header from '../components/Header'
+import { RegistryProvider } from '@effect/atom-react'
 
 import appCss from '../styles.css?url'
 
@@ -40,9 +44,14 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body className="font-sans antialiased [overflow-wrap:anywhere] selection:bg-[rgba(79,184,178,0.24)]">
-        <Header />
-        {children}
-        <Footer />
+        <RegistryProvider>
+          <Theme theme={neutralTheme}>
+            <AppShell topNav={<Header />} height="auto" contentPadding={4}>
+              {children}
+            </AppShell>
+            <Footer />
+          </Theme>
+        </RegistryProvider>
         <TanStackDevtools
           config={{
             position: 'bottom-right',
