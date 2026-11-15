@@ -101,14 +101,12 @@ test("the XState table shows each question's Channel and filters the Channels ap
   const guards = page.getByRole("row", { name: XSTATE_GUARDS });
 
   await expect(stopActors.getByText("general", { exact: true })).toBeVisible();
-  await expect(
-    guards.getByText("xstate-guards", { exact: true })
-  ).toBeVisible();
+  await expect(guards.getByText("help", { exact: true })).toBeVisible();
 
   await page.getByRole("combobox", { name: "Search" }).click();
   await page.getByRole("option", { name: "Channel" }).click();
   await page.getByRole("combobox", { name: "Value" }).click();
-  await page.getByRole("option", { name: "xstate-guards" }).click();
+  await page.getByRole("option", { name: "help" }).click();
 
   await expect(guards).toBeVisible();
   await expect(stopActors).toHaveCount(0);

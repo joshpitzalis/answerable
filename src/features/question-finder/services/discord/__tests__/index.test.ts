@@ -62,7 +62,7 @@ describe("Discord.messagesSince for the XState Channels", () => {
 
     const guards = await withDiscord((discord) =>
       discord.messagesSince(
-        "xstate-placeholder-channel-guards",
+        "1021738689434501181",
         Option.none(),
         "795785288994652170"
       )
@@ -87,7 +87,7 @@ describe("Discord.hasReplyFrom for the XState Project", () => {
   it("is true for the XState owner in its answered thread, false for the Effect owner", async () => {
     await expect(
       withDiscord((discord) =>
-        discord.hasReplyFrom("1540000000000000002", "xstate-placeholder-owner")
+        discord.hasReplyFrom("1540000000000000002", "joshpitzalis")
       )
     ).resolves.toBeTruthy();
     await expect(
@@ -97,7 +97,7 @@ describe("Discord.hasReplyFrom for the XState Project", () => {
     ).resolves.toBeFalsy();
     await expect(
       withDiscord((discord) =>
-        discord.hasReplyFrom("1525693287409913856", "xstate-placeholder-owner")
+        discord.hasReplyFrom("1525693287409913856", "joshpitzalis")
       )
     ).resolves.toBeFalsy();
   });
