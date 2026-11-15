@@ -11,7 +11,10 @@ import type {
   Snowflake,
 } from "../domain";
 import { looksLikeAQuestion } from "../domain";
-import { DiscordFailed } from "../services/discord/lib/errors";
+import {
+  DiscordFailed,
+  DiscordRateLimited,
+} from "../services/discord/lib/errors";
 import { JudgeFailed } from "../services/judge";
 import { fromEffect } from "./fromEffect";
 import type { HarvestServices } from "./harvestSteps";
@@ -36,6 +39,26 @@ const reasonOf = ({ error }: Rejection): string =>
 
 type Step = "fetching" | "checkingReplies" | "judging" | "saving";
 
+/** Retries a Channel run gets after Discord rate-limits it, across all its steps. */
+const MAX_RETRIES = 2;
+
+interface ChannelContext {
+  project: Project;
+  channel: Channel;
+  /** The messages the next step works on. */
+  batch: readonly DiscordMessage[];
+  rows: readonly QuestionsRow[];
+  /** Newest message read: where the cursor goes once the rows are saved. */
+  newest: Snowflake | null;
+  /** The step that failed or was rate-limited, so `waiting` can re-enter it. */
+  failedStep: Step | null;
+  reason: string | null;
+  /** Rate-limit retries used so far in this Channel run. */
+  retries: number;
+  /** How long Discord asked the Channel to wait. */
+  waitMs: number;
+}
+
 /**
  * One Channel's Harvest. Flow only: every step is one Effect over the whole
  * batch. The Channel ends in `done` or `failed` and never rejects, so a failure
@@ -44,12 +67,42 @@ type Step = "fetching" | "checkingReplies" | "judging" | "saving";
 export const createChannelHarvestMachine = (
   runtime: ManagedRuntime.ManagedRuntime<HarvestServices, never>
 ) => {
-  const failedIn = (step: Step) => (event: Rejection) => ({
-    target: "failed" as const,
-    context: { failedStep: step, reason: reasonOf(event) },
-  });
+  /**
+   * The one place `onError` is wired. A rate limit waits and re-enters the step
+   * while the Channel run's retry budget lasts; anything else ends the Channel.
+   */
+  const failedIn =
+    (step: Step) =>
+    ({ context, event }: { context: ChannelContext; event: Rejection }) => {
+      if (!(event.error instanceof DiscordRateLimited)) {
+        return {
+          target: "failed" as const,
+          context: { failedStep: step, reason: reasonOf(event) },
+        };
+      }
+
+      if (context.retries >= MAX_RETRIES) {
+        return {
+          target: "failed" as const,
+          context: {
+            failedStep: step,
+            reason: `Rate-limited by Discord: still limited after ${MAX_RETRIES} retries`,
+          },
+        };
+      }
+
+      return {
+        target: "waiting" as const,
+        context: {
+          failedStep: step,
+          retries: context.retries + 1,
+          waitMs: event.error.retryAfterMs,
+        },
+      };
+    };
 
   return setup({
+    delays: { discordRetryAfter: ({ context }) => context.waitMs },
     actors: {
       fetchNewMessages: fromEffect(runtime, fetchNewMessages),
       dropRepliedThreads: fromEffect(runtime, dropRepliedThreads),
@@ -58,18 +111,7 @@ export const createChannelHarvestMachine = (
     },
     schemas: {
       input: types<{ project: Project; channel: Channel }>(),
-      context: types<{
-        project: Project;
-        channel: Channel;
-        /** The messages the next step works on. */
-        batch: readonly DiscordMessage[];
-        rows: readonly QuestionsRow[];
-        /** Newest message read: where the cursor goes once the rows are saved. */
-        newest: Snowflake | null;
-        /** The step that failed, so a retry can re-enter it. */
-        failedStep: Step | null;
-        reason: string | null;
-      }>(),
+      context: types<ChannelContext>(),
       output: types<FailedChannel | null>(),
     },
   }).createMachine({
@@ -81,6 +123,8 @@ export const createChannelHarvestMachine = (
       newest: null,
       failedStep: null,
       reason: null,
+      retries: 0,
+      waitMs: 0,
     }),
     initial: "fetching",
     states: {
@@ -106,7 +150,7 @@ export const createChannelHarvestMachine = (
               },
             };
           },
-          onError: ({ event }) => failedIn("fetching")(event),
+          onError: failedIn("fetching"),
         },
       },
       checkingReplies: {
@@ -120,7 +164,7 @@ export const createChannelHarvestMachine = (
             target: "judging",
             context: { batch: event.output },
           }),
-          onError: ({ event }) => failedIn("checkingReplies")(event),
+          onError: failedIn("checkingReplies"),
         },
       },
       judging: {
@@ -135,7 +179,7 @@ export const createChannelHarvestMachine = (
             target: "saving",
             context: { rows: event.output },
           }),
-          onError: ({ event }) => failedIn("judging")(event),
+          onError: failedIn("judging"),
         },
       },
       saving: {
@@ -147,7 +191,14 @@ export const createChannelHarvestMachine = (
             newest: context.newest,
           }),
           onDone: { target: "done" },
-          onError: ({ event }) => failedIn("saving")(event),
+          onError: failedIn("saving"),
+        },
+      },
+      waiting: {
+        after: {
+          discordRetryAfter: ({ context }) => ({
+            target: context.failedStep ?? "fetching",
+          }),
         },
       },
       done: { type: "final" },

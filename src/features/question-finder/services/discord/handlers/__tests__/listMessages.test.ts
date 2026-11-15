@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
-import { DiscordFailed } from "../../lib/errors";
+import { DiscordFailed, DiscordRateLimited } from "../../lib/errors";
 import { listMessages } from "../listMessages";
 
 const PATH = "/channels/1/messages";
@@ -55,8 +55,49 @@ describe(listMessages, () => {
       respondWith(new Response("nope", { status: 401 }))
     );
 
-    expect(failure).toBeInstanceOf(DiscordFailed);
-    expect(failure.reason).toBe("GET /channels/1/messages returned 401");
+    expect(failure).toStrictEqual(
+      new DiscordFailed({ reason: "GET /channels/1/messages returned 401" })
+    );
+  });
+
+  it("reports a rate limit with the delay Discord's body asks for, in milliseconds", async () => {
+    const failure = await failureOf(
+      respondWith(
+        Response.json(
+          { global: false, message: "rate limited", retry_after: 2.5 },
+          { status: 429 }
+        )
+      )
+    );
+
+    expect(failure).toStrictEqual(
+      new DiscordRateLimited({ retryAfterMs: 2500 })
+    );
+  });
+
+  it("falls back to the Retry-After header when the body has no delay", async () => {
+    const failure = await failureOf(
+      respondWith(
+        new Response("slow down", {
+          headers: { "Retry-After": "3" },
+          status: 429,
+        })
+      )
+    );
+
+    expect(failure).toStrictEqual(
+      new DiscordRateLimited({ retryAfterMs: 3000 })
+    );
+  });
+
+  it("treats a 429 that names no delay as an ordinary failure", async () => {
+    const failure = await failureOf(
+      respondWith(new Response("slow down", { status: 429 }))
+    );
+
+    expect(failure).toStrictEqual(
+      new DiscordFailed({ reason: "GET /channels/1/messages returned 429" })
+    );
   });
 
   it("fails on a body that is not a list of messages", async () => {
@@ -70,6 +111,8 @@ describe(listMessages, () => {
   it("reports a network failure", async () => {
     const failure = await failureOf(() => Promise.reject(new Error("offline")));
 
-    expect(failure.reason).toBe("Error: offline");
+    expect(failure).toStrictEqual(
+      new DiscordFailed({ reason: "Error: offline" })
+    );
   });
 });

@@ -16,6 +16,16 @@ interface WireConfig {
   readonly replies?: Readonly<Record<string, readonly string[]>>;
   /** Channel ids and thread ids the wire answers with a 500. */
   readonly broken?: readonly string[];
+  /**
+   * Channel ids and thread ids the wire answers with a 429 for their first
+   * `times` requests, asking for `retryAfterSeconds` as Discord's body does.
+   */
+  readonly limited?: Readonly<
+    Record<
+      string,
+      { readonly times: number; readonly retryAfterSeconds: number }
+    >
+  >;
 }
 
 const raw = (
@@ -35,14 +45,34 @@ export const fakeDiscord = ({
   channels,
   replies = {},
   broken = [],
+  limited = {},
 }: WireConfig) => {
   /** Channel ids whose messages were listed, in request order. */
   const channelsRead: string[] = [];
+  /** Every request seen, by channel or thread id. */
+  const requestsTo: Record<string, number> = {};
 
   const fetch: typeof globalThis.fetch = (input) => {
     const url = new URL(String(input));
     const id = url.pathname.split("/").at(-2) ?? "";
     const after = url.searchParams.get("after");
+
+    requestsTo[id] = (requestsTo[id] ?? 0) + 1;
+
+    const limit = limited[id];
+
+    if (limit !== undefined && requestsTo[id] <= limit.times) {
+      return Promise.resolve(
+        Response.json(
+          {
+            global: false,
+            message: "rate limited",
+            retry_after: limit.retryAfterSeconds,
+          },
+          { status: 429 }
+        )
+      );
+    }
 
     if (broken.includes(id)) {
       return Promise.resolve(new Response("down", { status: 500 }));
@@ -72,5 +102,5 @@ export const fakeDiscord = ({
     );
   };
 
-  return { channelsRead, fetch };
+  return { channelsRead, fetch, requestsTo };
 };

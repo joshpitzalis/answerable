@@ -8,7 +8,10 @@ import {
   authorNameOf,
   toMessage,
 } from "@/features/question-finder/services/discord/lib/DTOs";
-import type { DiscordFailed } from "@/features/question-finder/services/discord/lib/errors";
+import type {
+  DiscordFailed,
+  DiscordRateLimited,
+} from "@/features/question-finder/services/discord/lib/errors";
 
 import { fixtureFetch, listMessages } from "./handlers";
 
@@ -48,11 +51,14 @@ export class Discord extends Context.Service<
       channelId: string,
       cursor: Option.Option<Snowflake>,
       serverId: string
-    ) => Effect.Effect<readonly DiscordMessage[], DiscordFailed>;
+    ) => Effect.Effect<
+      readonly DiscordMessage[],
+      DiscordFailed | DiscordRateLimited
+    >;
     readonly hasReplyFrom: (
       threadId: string,
       authorName: string
-    ) => Effect.Effect<boolean, DiscordFailed>;
+    ) => Effect.Effect<boolean, DiscordFailed | DiscordRateLimited>;
   }
 >()("app/Discord") {
   /**
