@@ -52,7 +52,6 @@ export const QuestionsView = ({
           searchPlaceholder="Search questions..."
         />
       </>
-
     );
   }
 
