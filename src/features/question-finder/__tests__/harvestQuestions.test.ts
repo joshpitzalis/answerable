@@ -299,6 +299,19 @@ const threePosts = () =>
     },
   });
 
+/** `count` posts, ids 1000 upward, oldest first. */
+const manyPosts = (count: number) =>
+  fakeDiscord({
+    channels: {},
+    forums: {
+      f1: Array.from({ length: count }, (_, index) => ({
+        content: "Why?",
+        id: `${1000 + index}`,
+        title: `Actors stop ${index}`,
+      })),
+    },
+  });
+
 describe("a forum Channel", () => {
   it("is saved as questions carrying the post's title, link and reply count", async () => {
     const runtime = runtimeOver(threePosts().fetch);
@@ -353,7 +366,7 @@ describe("a forum Channel", () => {
 
     expect(wire.requestLog).toStrictEqual([
       "/api/v9/channels/f1",
-      "/api/v9/channels/f1/threads/search?archived=false&sort_by=creation_time&sort_order=desc&limit=10&offset=0",
+      "/api/v9/channels/f1/threads/search?archived=false&sort_by=creation_time&sort_order=desc&limit=25&offset=0",
       "/api/v9/channels/100/messages?limit=10",
       "/api/v9/channels/200/messages?limit=10",
       "/api/v9/channels/300/messages?limit=10",
@@ -365,7 +378,7 @@ describe("a forum Channel", () => {
     ).resolves.toStrictEqual([]);
 
     expect(wire.requestLog).toStrictEqual([
-      "/api/v9/channels/f1/threads/search?archived=false&sort_by=creation_time&sort_order=desc&limit=10&offset=0",
+      "/api/v9/channels/f1/threads/search?archived=false&sort_by=creation_time&sort_order=desc&limit=25&offset=0",
     ]);
     await expect(storedIds(runtime, FORUM_PROJECT)).resolves.toHaveLength(3);
   });
@@ -476,6 +489,58 @@ describe("a forum Channel", () => {
     ]);
   });
 
+  it("reads a second page of posts when the first is full of new ones, and saves posts from both", async () => {
+    const wire = manyPosts(30);
+    const runtime = runtimeOver(wire.fetch);
+
+    await expect(
+      harvestQuestions(runtime, FORUM_PROJECT)
+    ).resolves.toStrictEqual([]);
+
+    expect(
+      wire.requestLog.filter((path) => path.includes("threads/search"))
+    ).toStrictEqual([
+      "/api/v9/channels/f1/threads/search?archived=false&sort_by=creation_time&sort_order=desc&limit=25&offset=0",
+      "/api/v9/channels/f1/threads/search?archived=false&sort_by=creation_time&sort_order=desc&limit=25&offset=25",
+    ]);
+
+    const stored = await storedIds(runtime, FORUM_PROJECT);
+
+    expect(stored).toHaveLength(30);
+    expect(stored).toContain("1029");
+    expect(stored).toContain("1000");
+  });
+
+  it("reads at most the 50 newest posts", async () => {
+    const runtime = runtimeOver(manyPosts(60).fetch);
+
+    await harvestQuestions(runtime, FORUM_PROJECT);
+
+    const stored = await storedIds(runtime, FORUM_PROJECT);
+
+    expect(stored).toHaveLength(50);
+    expect(stored).toContain("1059");
+    expect(stored).toContain("1010");
+    expect(stored).not.toContain("1009");
+  });
+
+  it("does not read a second page when the first already reaches the cursor", async () => {
+    const wire = manyPosts(30);
+    const runtime = runtimeOver(wire.fetch);
+
+    // Posts 1011 to 1029 are newer; the first page of 25 runs back to 1005.
+    await runtime.runPromise(
+      Cursors.use((cursors) => cursors.set("f1", "1010"))
+    );
+
+    await harvestQuestions(runtime, FORUM_PROJECT);
+
+    expect(
+      wire.requestLog.filter((path) => path.includes("threads/search"))
+    ).toHaveLength(1);
+    await expect(storedIds(runtime, FORUM_PROJECT)).resolves.toHaveLength(19);
+  });
+
   it("is read beside a text Channel, which still needs its question mark", async () => {
     const wire = fakeDiscord({
       channels: {
@@ -506,6 +571,30 @@ describe("a forum Channel", () => {
 });
 
 describe(harvestQuestions, () => {
+  it("asks a text Channel for its 50 newest messages", async () => {
+    const wire = fakeDiscord({
+      channels: {
+        x1: Array.from({ length: 60 }, (_, index) => ({
+          content: `How do actors work, part ${index}?`,
+          id: `${1000 + index}`,
+        })),
+        x2: [],
+      },
+    });
+
+    const runtime = runtimeOver(wire.fetch);
+
+    await harvestQuestions(runtime, XSTATE);
+
+    expect(wire.requestLog).toContain("/api/v9/channels/x1/messages?limit=50");
+
+    const stored = await storedIds(runtime, XSTATE);
+
+    expect(stored).toHaveLength(50);
+    expect(stored).toContain("1059");
+    expect(stored).not.toContain("1009");
+  });
+
   it("reports a Channel whose wire fails and still saves its sibling's questions", async () => {
     const wire = fakeDiscord({
       broken: ["x2"],
@@ -522,7 +611,7 @@ describe(harvestQuestions, () => {
     expect(failed).toStrictEqual([
       {
         name: "xstate-chat",
-        reason: "GET /channels/x2/messages?limit=10 returned 500",
+        reason: "GET /channels/x2/messages?limit=50 returned 500",
       },
     ]);
     await expect(storedIds(runtime, XSTATE)).resolves.toStrictEqual(["100"]);

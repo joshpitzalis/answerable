@@ -49,5 +49,6 @@ export const decodePostSearch = Schema.decodeUnknownEffect(
   Schema.Struct({
     threads: Schema.Array(RawPost),
     first_messages: Schema.optional(Schema.Array(RawMessage)),
+    has_more: Schema.optional(Schema.Boolean),
   })
 );

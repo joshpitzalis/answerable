@@ -19,6 +19,7 @@ import {
   isPostChannel,
   listMessages,
   listPosts,
+  POST_PAGE,
 } from "./handlers";
 
 /** Snowflakes of different lengths still order by time: longer is newer. */
@@ -41,30 +42,42 @@ const make = (fetch: typeof globalThis.fetch, token: string) => {
       : Effect.succeed(known);
   };
 
-  const postsSince = (
+  const postsSince = Effect.fn("Discord.postsSince")(function* (
     channelId: string,
     cursor: Option.Option<Snowflake>,
     serverId: string
-  ) =>
-    listPosts(channelId, token, fetch).pipe(
-      Effect.map(({ threads, first_messages: firstMessages = [] }) =>
-        threads
-          .filter(
-            (post) => Option.isNone(cursor) || isNewer(post.id, cursor.value)
-          )
-          .flatMap((post) => {
-            const first = firstMessages.find(
-              (message) => message.id === post.id
-            );
+  ) {
+    const isNew = (post: { readonly id: Snowflake }) =>
+      Option.isNone(cursor) || isNewer(post.id, cursor.value);
 
-            return first === undefined
-              ? []
-              : [toPostMessage(post, first, serverId)];
-          })
-          // Newest first from Discord; oldest first for the pipeline.
-          .toReversed()
-      )
+    const firstPage = yield* listPosts(channelId, token, fetch);
+
+    // A second page only when Discord has more and nothing on this one is old.
+    const secondPage =
+      firstPage.has_more === true && firstPage.threads.every(isNew)
+        ? yield* listPosts(channelId, token, fetch, POST_PAGE)
+        : undefined;
+
+    const pages =
+      secondPage === undefined ? [firstPage] : [firstPage, secondPage];
+
+    const firstMessages = pages.flatMap((page) => page.first_messages ?? []);
+
+    return (
+      pages
+        .flatMap((page) => page.threads)
+        .filter(isNew)
+        .flatMap((post) => {
+          const first = firstMessages.find((message) => message.id === post.id);
+
+          return first === undefined
+            ? []
+            : [toPostMessage(post, first, serverId)];
+        })
+        // Newest first from Discord; oldest first for the pipeline.
+        .toReversed()
     );
+  });
 
   const textMessagesSince = (
     channelId: string,
@@ -72,7 +85,7 @@ const make = (fetch: typeof globalThis.fetch, token: string) => {
     serverId: string
   ) =>
     listMessages(
-      `/channels/${channelId}/messages?limit=10${
+      `/channels/${channelId}/messages?limit=50${
         Option.isNone(cursor) ? "" : `&after=${cursor.value}`
       }`,
       token,
