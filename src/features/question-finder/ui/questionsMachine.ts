@@ -1,18 +1,22 @@
 import { createAsyncLogic, setup, types } from "xstate";
 
-import type { QuestionsRow } from "../domain";
+import type { FailedChannel, QuestionsReply, QuestionsRow } from "../domain";
 
-export const createQuestionsMachine = (load: () => Promise<QuestionsRow[]>) => {
-  const loadQuestions = createAsyncLogic<QuestionsRow[]>({ run: () => load() });
+export const createQuestionsMachine = (load: () => Promise<QuestionsReply>) => {
+  const loadQuestions = createAsyncLogic<QuestionsReply>({ run: () => load() });
 
   return setup({
     actors: { loadQuestions },
     schemas: {
-      context: types<{ questions: QuestionsRow[]; reason: string | null }>(),
+      context: types<{
+        questions: QuestionsRow[];
+        failedChannels: FailedChannel[];
+        reason: string | null;
+      }>(),
       events: { retry: types<Record<string, never>>() },
     },
   }).createMachine({
-    context: { questions: [], reason: null },
+    context: { questions: [], failedChannels: [], reason: null },
     initial: "loading",
     states: {
       loading: {
@@ -20,7 +24,11 @@ export const createQuestionsMachine = (load: () => Promise<QuestionsRow[]>) => {
           src: "loadQuestions",
           onDone: ({ event }) => ({
             target: "loaded",
-            context: { questions: event.output, reason: null },
+            context: {
+              questions: event.output.questions,
+              failedChannels: event.output.failedChannels,
+              reason: null,
+            },
           }),
           onError: ({ event }) => ({
             target: "failed",

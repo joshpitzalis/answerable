@@ -45,6 +45,18 @@ export const QuestionsRow = Schema.Struct({
 
 export type QuestionsRow = Schema.Schema.Type<typeof QuestionsRow>;
 
+/** A Channel the Harvest could not read, for the page to name. Plain data. */
+export interface FailedChannel {
+  readonly name: string;
+  readonly reason: string;
+}
+
+/** What the server function replies with. Plain data: failures are not thrown. */
+export interface QuestionsReply {
+  readonly questions: QuestionsRow[];
+  readonly failedChannels: FailedChannel[];
+}
+
 // ponytail: '?' is enough for text channels. If these are forum channels every
 // thread is already a question and this filter disappears entirely.
 export const looksLikeAQuestion = (message: DiscordMessage): boolean =>

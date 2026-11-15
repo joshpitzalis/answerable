@@ -55,11 +55,14 @@ export class Discord extends Context.Service<
     ) => Effect.Effect<boolean, DiscordFailed>;
   }
 >()("app/Discord") {
-  /** Token is passed in, never read here — the secret lives in `env`. */
-  static readonly layer = (token: string) =>
-    Layer.sync(Discord, () =>
-      Discord.of(make(globalThis.fetch.bind(globalThis), token))
-    );
+  /**
+   * Token is passed in, never read here — the secret lives in `env`. `fetch` is
+   * the wire; a test passes a fake one.
+   */
+  static readonly layer = (
+    token: string,
+    fetch: typeof globalThis.fetch = (...args) => globalThis.fetch(...args)
+  ) => Layer.sync(Discord, () => Discord.of(make(fetch, token)));
 
   /** Same code — request building, decoding, mapping. Only the wire is faked. */
   static readonly stub = Layer.sync(Discord, () =>

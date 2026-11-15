@@ -1,20 +1,17 @@
-import { Effect, Layer, Option } from "effect";
+import { Effect, Layer, ManagedRuntime, Option } from "effect";
 import { describe, expect, it } from "vitest";
 
-import type { DiscordMessage, Project } from "../domain";
+import type { Project } from "../domain";
 import { EFFECT_PROJECT } from "../lib/projects.config";
 import { Corpus } from "../services/corpus";
 import { Cursors } from "../services/cursors";
 import { Discord } from "../services/discord";
-import { DiscordFailed } from "../services/discord/lib/errors";
 import { Judge } from "../services/judge";
 import { QuestionStore } from "../services/question-store";
 import { harvestQuestions } from "../workflows/harvestQuestions";
+import { fakeDiscord } from "./discordWire.test-utils";
 
-const CHANNEL = "1125094089281511474";
-const THREAD_I_ANSWERED = "300";
-
-const OTHER_PROJECT: Project = {
+const XSTATE: Project = {
   channels: [
     { id: "x1", name: "xstate-help" },
     { id: "x2", name: "xstate-chat" },
@@ -25,159 +22,229 @@ const OTHER_PROJECT: Project = {
   slug: "xstate",
 };
 
-const message = (id: string, content: string): DiscordMessage => ({
-  authorName: "ada",
-  content,
-  createdAt: new Date("2026-08-01T00:00:00Z"),
-  id,
-  replyCount: 2,
-  threadId: id,
-  url: `https://discord.com/channels/1/2/${id}`,
-});
-
-// Judge.stub answers a question that shares a long word with a post title:
-// "layers" and "effect" match, "pizza" does not.
-const MESSAGES = [
-  message("100", "How do I build layers once?"),
-  message("200", "Layers are great."),
-  message(THREAD_I_ANSWERED, "Why are Effect layers lazy?"),
-  message("400", "What is the best pizza topping?"),
-];
-
-interface Call {
-  readonly channelId: string;
-  readonly serverId: string;
-}
-
-interface ReplyAsked {
-  readonly threadId: string;
-  readonly authorName: string;
-}
-
-const discordServing = (
-  messages: readonly DiscordMessage[],
-  calls: Call[] = [],
-  repliesAsked: ReplyAsked[] = []
-) =>
-  Layer.succeed(
-    Discord,
-    Discord.of({
-      hasReplyFrom: (threadId, authorName) =>
-        Effect.sync(() => {
-          repliesAsked.push({ authorName, threadId });
-
-          return threadId === THREAD_I_ANSWERED;
-        }),
-      messagesSince: (channelId, cursor, serverId) =>
-        Effect.sync(() => {
-          calls.push({ channelId, serverId });
-
-          return Option.isNone(cursor)
-            ? messages
-            : messages.filter((candidate) => candidate.id > cursor.value);
-        }),
-    })
-  );
-
-const discordDown = Layer.succeed(
-  Discord,
-  Discord.of({
-    hasReplyFrom: () => Effect.fail(new DiscordFailed({ reason: "down" })),
-    messagesSince: () => Effect.fail(new DiscordFailed({ reason: "down" })),
+// Judge.stub answers a question that shares a word of more than four letters with
+// a Post title, so these titles make "actors" XState's and "layers" Effect's.
+const corpus = Layer.succeed(
+  Corpus,
+  Corpus.of({
+    all: (slug) =>
+      Effect.succeed(
+        slug === "xstate"
+          ? [
+              {
+                body: "…",
+                slug: "invoking-actors",
+                title: "Invoking actors from a machine",
+              },
+            ]
+          : [
+              {
+                body: "…",
+                slug: "layers-once",
+                title: "Building Effect layers once",
+              },
+            ]
+      ),
   })
 );
 
-const harvestWith = (
-  discord: Layer.Layer<Discord>,
-  project: Project = EFFECT_PROJECT
-) =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      yield* harvestQuestions(project);
+const storeThatCannotSave = Layer.succeed(
+  QuestionStore,
+  QuestionStore.of({
+    listOpen: () => Effect.succeed([]),
+    save: () => Effect.die(new Error("disk full")),
+  })
+);
 
-      return {
-        cursor: Option.getOrNull(
-          yield* Cursors.use((cursors) => cursors.get(CHANNEL))
-        ),
-        rows: yield* QuestionStore.use((store) => store.listOpen(project.slug)),
-      };
-    }).pipe(
-      Effect.provide(
-        Layer.mergeAll(
-          discord,
-          Cursors.stub,
-          Corpus.stub,
-          Judge.stub,
-          QuestionStore.stub
-        )
-      )
+const runtimeOver = (
+  fetch: typeof globalThis.fetch,
+  store: Layer.Layer<QuestionStore> = QuestionStore.stub
+) =>
+  ManagedRuntime.make(
+    Layer.mergeAll(
+      Discord.layer("token", fetch),
+      Cursors.stub,
+      corpus,
+      Judge.stub,
+      store
     )
   );
 
-describe(harvestQuestions, () => {
-  it("stores only unanswered questions that a post can answer, with their Project and Channel", async () => {
-    const { rows } = await harvestWith(discordServing(MESSAGES));
+const storedIds = async (
+  runtime: ReturnType<typeof runtimeOver>,
+  project: Project
+) => {
+  const rows = await runtime.runPromise(
+    Effect.gen(function* () {
+      const store = yield* QuestionStore;
 
-    expect(rows).toStrictEqual([
+      return yield* store.listOpen(project.slug);
+    })
+  );
+
+  return rows.map((row) => row.id);
+};
+
+const cursorOf = async (
+  runtime: ReturnType<typeof runtimeOver>,
+  channelId: string
+) => {
+  const cursor = await runtime.runPromise(
+    Effect.gen(function* () {
+      const cursors = yield* Cursors;
+
+      return yield* cursors.get(channelId);
+    })
+  );
+
+  return Option.getOrNull(cursor);
+};
+
+const twoChannelsWithOneQuestion = () =>
+  fakeDiscord({
+    channels: {
+      x1: [
+        { content: "How do actors get stopped?", id: "100" },
+        { content: "Actors are great.", id: "200" },
+        { content: "What is the best pizza topping?", id: "300" },
+      ],
+      x2: [],
+    },
+  });
+
+describe(harvestQuestions, () => {
+  it("reports a Channel whose wire fails and still saves its sibling's questions", async () => {
+    const wire = fakeDiscord({
+      broken: ["x2"],
+      channels: {
+        x1: [{ content: "How do actors get stopped?", id: "100" }],
+        x2: [{ content: "How do actors get spawned?", id: "200" }],
+      },
+    });
+
+    const runtime = runtimeOver(wire.fetch);
+
+    const failed = await harvestQuestions(runtime, XSTATE);
+
+    expect(failed).toStrictEqual([
       {
-        channel: { id: CHANNEL, name: "effect-help" },
-        comments: 2,
-        dateAsked: new Date("2026-08-01T00:00:00Z"),
-        id: "100",
-        name: "ada",
-        project: "effect",
-        question: "How do I build layers once?",
-        url: "https://discord.com/channels/1/2/100",
+        name: "xstate-chat",
+        reason: "GET /channels/x2/messages?limit=10 returned 500",
       },
     ]);
+    await expect(storedIds(runtime, XSTATE)).resolves.toStrictEqual(["100"]);
   });
 
-  it("advances the cursor to the newest message it read", async () => {
-    const { cursor } = await harvestWith(discordServing(MESSAGES));
+  it("leaves the cursor where it was when a step before saving fails", async () => {
+    const wire = fakeDiscord({
+      broken: ["100"],
+      channels: { x1: [{ content: "How do actors get stopped?", id: "100" }] },
+    });
 
-    expect(cursor).toBe("400");
-  });
+    const runtime = runtimeOver(wire.fetch);
 
-  it("survives a Discord outage without storing rows or moving the cursor", async () => {
-    const { cursor, rows } = await harvestWith(discordDown);
+    const failed = await harvestQuestions(runtime, {
+      ...XSTATE,
+      channels: [{ id: "x1", name: "xstate-help" }],
+    });
 
-    expect(rows).toStrictEqual([]);
-    expect(cursor).toBeNull();
-  });
-
-  it("reads only the requested Project's Channels, with that Project's server id", async () => {
-    const calls: Call[] = [];
-
-    await harvestWith(discordServing([], calls), OTHER_PROJECT);
-
-    expect(calls).toStrictEqual([
-      { channelId: "x1", serverId: "999" },
-      { channelId: "x2", serverId: "999" },
+    expect(failed.map((channel) => channel.name)).toStrictEqual([
+      "xstate-help",
     ]);
+    await expect(cursorOf(runtime, "x1")).resolves.toBeNull();
   });
 
-  it("asks for a reply from the requested Project's owner name", async () => {
-    const repliesAsked: ReplyAsked[] = [];
+  it("leaves the cursor where it was when saving fails", async () => {
+    const wire = fakeDiscord({
+      channels: { x1: [{ content: "How do actors get stopped?", id: "100" }] },
+    });
 
-    await harvestWith(
-      discordServing(
-        [message("100", "How do I build layers once?")],
-        [],
-        repliesAsked
-      ),
-      OTHER_PROJECT
-    );
+    const runtime = runtimeOver(wire.fetch, storeThatCannotSave);
 
-    expect(repliesAsked).toStrictEqual([
-      { authorName: "xena", threadId: "100" },
-      { authorName: "xena", threadId: "100" },
+    const failed = await harvestQuestions(runtime, {
+      ...XSTATE,
+      channels: [{ id: "x1", name: "xstate-help" }],
+    });
+
+    expect(failed.map((channel) => channel.name)).toStrictEqual([
+      "xstate-help",
     ]);
+    await expect(cursorOf(runtime, "x1")).resolves.toBeNull();
   });
 
-  it("judges against the requested Project's Posts only", async () => {
-    // The question matches an Effect post, but XState has none.
-    const { rows } = await harvestWith(discordServing(MESSAGES), OTHER_PROJECT);
+  it("advances the cursor to the newest message read", async () => {
+    const runtime = runtimeOver(twoChannelsWithOneQuestion().fetch);
 
-    expect(rows).toStrictEqual([]);
+    const failed = await harvestQuestions(runtime, XSTATE);
+
+    expect(failed).toStrictEqual([]);
+    await expect(cursorOf(runtime, "x1")).resolves.toBe("300");
+    await expect(cursorOf(runtime, "x2")).resolves.toBeNull();
+  });
+
+  it("keeps earlier questions listed when a second run reads nothing new", async () => {
+    const runtime = runtimeOver(twoChannelsWithOneQuestion().fetch);
+
+    await harvestQuestions(runtime, XSTATE);
+    const second = await harvestQuestions(runtime, XSTATE);
+
+    expect(second).toStrictEqual([]);
+    await expect(cursorOf(runtime, "x1")).resolves.toBe("300");
+    await expect(storedIds(runtime, XSTATE)).resolves.toStrictEqual(["100"]);
+  });
+
+  it("reads only the requested Project's Channels", async () => {
+    const wire = fakeDiscord({
+      channels: {
+        "1125094089281511474": [{ content: "Why layers?", id: "900" }],
+        x1: [],
+        x2: [],
+      },
+    });
+
+    const runtime = runtimeOver(wire.fetch);
+
+    await harvestQuestions(runtime, XSTATE);
+
+    expect(wire.channelsRead.toSorted()).toStrictEqual(["x1", "x2"]);
+  });
+
+  it("keeps a question only when it matches a Post of its own Project", async () => {
+    const wire = fakeDiscord({
+      channels: {
+        x1: [
+          { content: "How do actors get stopped?", id: "100" },
+          { content: "How do I build layers once?", id: "200" },
+        ],
+        x2: [],
+      },
+    });
+
+    const runtime = runtimeOver(wire.fetch);
+
+    await harvestQuestions(runtime, XSTATE);
+
+    await expect(storedIds(runtime, XSTATE)).resolves.toStrictEqual(["100"]);
+    await expect(storedIds(runtime, EFFECT_PROJECT)).resolves.toStrictEqual([]);
+  });
+
+  it("leaves out a thread the owner replied to under that Project's display name", async () => {
+    const wire = fakeDiscord({
+      channels: {
+        x1: [
+          { content: "How do actors get stopped?", id: "100" },
+          { content: "Why are machine actors lazy?", id: "200" },
+        ],
+        x2: [],
+      },
+      // "josh" is the Effect owner's name: it must not count in the XState Project.
+      replies: { "100": ["xena"], "200": ["josh"] },
+    });
+
+    const runtime = runtimeOver(wire.fetch);
+
+    await harvestQuestions(runtime, XSTATE);
+
+    await expect(storedIds(runtime, XSTATE)).resolves.toStrictEqual(["200"]);
   });
 });

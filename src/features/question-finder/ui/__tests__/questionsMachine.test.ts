@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createActor, waitFor } from "xstate";
 
-import type { QuestionsRow } from "../../domain";
+import type { QuestionsReply, QuestionsRow } from "../../domain";
 import { createQuestionsMachine } from "../questionsMachine";
 
 const row: QuestionsRow = {
@@ -15,12 +15,29 @@ const row: QuestionsRow = {
   url: "https://discord.com/channels/1/2/3",
 };
 
+const reply: QuestionsReply = {
+  failedChannels: [{ name: "effect-chat", reason: "GET /x returned 401" }],
+  questions: [row],
+};
+
 const timeout = { timeout: 1000 };
 
 describe("questions machine", () => {
+  it("keeps the failed Channels the server reported", async () => {
+    const actor = createActor(
+      createQuestionsMachine(() => Promise.resolve(reply))
+    ).start();
+
+    const snapshot = await waitFor(actor, (s) => s.matches("loaded"), timeout);
+
+    expect(snapshot.context.failedChannels).toStrictEqual([
+      { name: "effect-chat", reason: "GET /x returned 401" },
+    ]);
+  });
+
   it("starts in loading and reaches loaded with the questions", async () => {
     const actor = createActor(
-      createQuestionsMachine(() => Promise.resolve([row]))
+      createQuestionsMachine(() => Promise.resolve(reply))
     ).start();
 
     expect(actor.getSnapshot().matches("loading")).toBeTruthy();
@@ -48,7 +65,7 @@ describe("questions machine", () => {
 
         return calls === 1
           ? Promise.reject(new Error("boom"))
-          : Promise.resolve([row]);
+          : Promise.resolve(reply);
       })
     ).start();
 
@@ -70,7 +87,7 @@ describe("questions machine", () => {
       createQuestionsMachine(() => {
         calls += 1;
 
-        return Promise.resolve([row]);
+        return Promise.resolve(reply);
       })
     ).start();
 
