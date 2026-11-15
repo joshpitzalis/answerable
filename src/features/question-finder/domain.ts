@@ -56,11 +56,43 @@ export interface FailedChannel {
   readonly reason: string;
 }
 
+/** How much each contributor has written in a Project, as plain numbers. */
+export interface ContributorStats {
+  /** Mean responses per contributor, unrounded. */
+  readonly meanResponses: number;
+  /** The smallest whole number of responses at or above mean + 1 standard deviation. */
+  readonly plusOneSd: number;
+}
+
 /** What the server function replies with. Plain data: failures are not thrown. */
 export interface QuestionsReply {
   readonly questions: QuestionsRow[];
   readonly failedChannels: FailedChannel[];
+  /** `null` until a response has been read. */
+  readonly contributorStats: ContributorStats | null;
 }
+
+/** `counts` holds one entry per contributor: how many responses they wrote. */
+export const contributorStats = (
+  counts: readonly number[]
+): ContributorStats | null => {
+  if (counts.length === 0) {
+    return null;
+  }
+
+  const meanResponses =
+    counts.reduce((sum, count) => sum + count, 0) / counts.length;
+
+  // Population SD: the contributors are everyone read, not a sample of them.
+  const variance =
+    counts.reduce((sum, count) => sum + (count - meanResponses) ** 2, 0) /
+    counts.length;
+
+  return {
+    meanResponses,
+    plusOneSd: Math.ceil(meanResponses + Math.sqrt(variance)),
+  };
+};
 
 // ponytail: '?' is enough for text channels. A forum post is a question by
 // being a post, so it skips the rule.

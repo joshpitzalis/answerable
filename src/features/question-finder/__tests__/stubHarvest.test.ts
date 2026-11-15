@@ -2,6 +2,7 @@ import { Layer, ManagedRuntime } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { EFFECT_PROJECT, XSTATE_PROJECT } from "../lib/projects.config.example";
+import { Contributions } from "../services/contributions";
 import { Corpus } from "../services/corpus";
 import { Cursors } from "../services/cursors";
 import { Discord } from "../services/discord";
@@ -15,6 +16,7 @@ const stubRuntime = () =>
     Layer.mergeAll(
       Discord.stub,
       Cursors.stub,
+      Contributions.stub,
       Corpus.stub,
       Judge.stub,
       QuestionStore.stub
@@ -33,6 +35,22 @@ describe("listQuestions in stub mode", () => {
       ["xstate-guards", "1540000000000000004"],
       ["xstate-help", "1540000000000000001"],
     ]);
+  });
+
+  it("counts the fixture's messages per Project: ten Effect authors once each, four XState authors", async () => {
+    const effect = await listQuestions(stubRuntime(), EFFECT_PROJECT);
+    const xstate = await listQuestions(stubRuntime(), XSTATE_PROJECT);
+
+    // Ten authors with one message: mean 1, SD 0.
+    expect(effect.contributorStats).toStrictEqual({
+      meanResponses: 1,
+      plusOneSd: 1,
+    });
+    // Otter Fan 02 wrote two of five messages, the other three one each: mean 1.25, SD 0.433, so 2.
+    expect(xstate.contributorStats).toStrictEqual({
+      meanResponses: 1.25,
+      plusOneSd: 2,
+    });
   });
 
   it("lists Effect questions without any XState question", async () => {

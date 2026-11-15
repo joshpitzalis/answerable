@@ -24,7 +24,7 @@ import {
 } from "@astryxdesign/core/PowerSearch";
 import type { TableColumn } from "@astryxdesign/core/Table";
 import { Table } from "@astryxdesign/core/Table";
-import { Heading } from "@astryxdesign/core/Text";
+import { Heading, Text } from "@astryxdesign/core/Text";
 import {
   ArrowDownTrayIcon,
   FunnelIcon,
@@ -38,6 +38,8 @@ interface TablePageProps<
 > {
   /** Page heading, also the PowerSearch config name. */
   readonly title: string;
+  /** Secondary text beside the heading. */
+  readonly subtitle?: string;
   readonly data: Row[];
   readonly columns: TableColumn<Row>[];
   /** Searchable/filterable fields. Declare `as const` so keys infer. */
@@ -51,6 +53,7 @@ export const TableComponent = <
   Row extends InferData<Fields> & Record<string, unknown>,
 >({
   title,
+  subtitle,
   data,
   columns,
   fieldDefs,
@@ -74,7 +77,12 @@ export const TableComponent = <
         <LayoutHeader hasDivider>
           <HStack gap={2} vAlign="center" paddingInline={6} paddingBlock={3}>
             <StackItem size="fill">
-              <Heading level={1}>{title}</Heading>
+              <HStack gap={3} vAlign="center">
+                <Heading level={1}>{title}</Heading>
+                {subtitle === undefined ? null : (
+                  <Text type="supporting">{subtitle}</Text>
+                )}
+              </HStack>
             </StackItem>
             <IconButton
               label="Filter"

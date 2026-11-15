@@ -17,6 +17,7 @@ const row: QuestionsRow = {
 };
 
 const reply: QuestionsReply = {
+  contributorStats: { meanResponses: 2, plusOneSd: 4 },
   failedChannels: [{ name: "effect-chat", reason: "GET /x returned 401" }],
   questions: [row],
 };
@@ -34,6 +35,19 @@ describe("questions machine", () => {
     expect(snapshot.context.failedChannels).toStrictEqual([
       { name: "effect-chat", reason: "GET /x returned 401" },
     ]);
+  });
+
+  it("keeps the contributor statistic the server reported", async () => {
+    const actor = createActor(
+      createQuestionsMachine(() => Promise.resolve(reply))
+    ).start();
+
+    const snapshot = await waitFor(actor, (s) => s.matches("loaded"), timeout);
+
+    expect(snapshot.context.contributorStats).toStrictEqual({
+      meanResponses: 2,
+      plusOneSd: 4,
+    });
   });
 
   it("starts in loading and reaches loaded with the questions", async () => {

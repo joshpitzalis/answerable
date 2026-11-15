@@ -6,6 +6,7 @@ import {
   PROJECTS,
   STUB_PROJECTS,
 } from "@/features/question-finder/lib/projects.utils";
+import { Contributions } from "@/features/question-finder/services/contributions";
 import { Corpus } from "@/features/question-finder/services/corpus";
 import { Cursors } from "@/features/question-finder/services/cursors";
 import { Discord } from "@/features/question-finder/services/discord";
@@ -34,6 +35,7 @@ const appLayer = Layer.mergeAll(
       : Discord.stub
   ),
   Cursors.stub,
+  Contributions.stub,
   Corpus.stub,
   // The owner has no real Posts yet: with a token bound the stub Posts must not
   // decide what shows. Without one, the stub Judge keeps the fixture honest.
