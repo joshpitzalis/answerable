@@ -22,7 +22,16 @@ describe("Corpus.all", () => {
     ]);
   });
 
+  it("returns the XState Project's Posts", async () => {
+    const posts = await postsFor("xstate");
+
+    expect(posts.map((post) => post.slug)).toStrictEqual([
+      "stopping-child-actors",
+      "guards-and-delays",
+    ]);
+  });
+
   it("returns no Posts for a Project that has none", async () => {
-    await expect(postsFor("xstate")).resolves.toStrictEqual([]);
+    await expect(postsFor("nope")).resolves.toStrictEqual([]);
   });
 });

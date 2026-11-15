@@ -50,6 +50,59 @@ describe("Discord.messagesSince", () => {
   });
 });
 
+describe("Discord.messagesSince for the XState Channels", () => {
+  it("serves each placeholder Channel's own messages, oldest first, linked under the placeholder server", async () => {
+    const help = await withDiscord((discord) =>
+      discord.messagesSince(
+        "xstate-placeholder-channel-help",
+        Option.none(),
+        "xstate-placeholder-server"
+      )
+    );
+
+    const guards = await withDiscord((discord) =>
+      discord.messagesSince(
+        "xstate-placeholder-channel-guards",
+        Option.none(),
+        "xstate-placeholder-server"
+      )
+    );
+
+    expect(help.map((message) => message.id)).toStrictEqual([
+      "1540000000000000001",
+      "1540000000000000002",
+      "1540000000000000003",
+    ]);
+    expect(guards.map((message) => message.id)).toStrictEqual([
+      "1540000000000000004",
+      "1540000000000000005",
+    ]);
+    expect(help[0]?.url).toBe(
+      "https://discord.com/channels/xstate-placeholder-server/xstate-placeholder-channel-help/1540000000000000001"
+    );
+  });
+});
+
+describe("Discord.hasReplyFrom for the XState Project", () => {
+  it("is true for the XState owner in its answered thread, false for the Effect owner", async () => {
+    await expect(
+      withDiscord((discord) =>
+        discord.hasReplyFrom("1540000000000000002", "xstate-placeholder-owner")
+      )
+    ).resolves.toBeTruthy();
+    await expect(
+      withDiscord((discord) =>
+        discord.hasReplyFrom("1540000000000000002", "josh")
+      )
+    ).resolves.toBeFalsy();
+    await expect(
+      withDiscord((discord) =>
+        discord.hasReplyFrom("1525693287409913856", "xstate-placeholder-owner")
+      )
+    ).resolves.toBeFalsy();
+  });
+});
+
 describe("Discord.hasReplyFrom", () => {
   it("is true when the author replied in the thread", async () => {
     await expect(

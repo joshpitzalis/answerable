@@ -35,5 +35,31 @@ const EFFECT_POSTS: readonly Post[] = [
   },
 ];
 
-const stubPostsFor = (projectSlug: string): readonly Post[] =>
-  projectSlug === "effect" ? EFFECT_POSTS : [];
+const XSTATE_POSTS: readonly Post[] = [
+  {
+    slug: "stopping-child-actors",
+    title: "Stopping child actors when a machine finishes",
+    body: "A parent machine stops the actors it spawned when it reaches a final state…",
+  },
+  {
+    slug: "guards-and-delays",
+    title: "Guards and delayed transitions in XState",
+    body: "A guard reads the event and context; a delay restarts on re-entry…",
+  },
+];
+
+const stubPostsFor = (projectSlug: string): readonly Post[] => {
+  switch (projectSlug) {
+    case "effect": {
+      return EFFECT_POSTS;
+    }
+
+    case "xstate": {
+      return XSTATE_POSTS;
+    }
+
+    default: {
+      return [];
+    }
+  }
+};

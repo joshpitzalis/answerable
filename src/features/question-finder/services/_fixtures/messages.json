@@ -158,5 +158,70 @@
       "message_count": 1,
       "name": "Do guppies carry a counting schema — can one really tell four dots from five?"
     }
+  },
+  {
+    "id": "1540000000000000005",
+    "content": "Is there a dark theme for the state chart visualiser?",
+    "timestamp": "2026-09-05T09:00:00.000000+00:00",
+    "channel_id": "xstate-placeholder-channel-guards",
+    "author": { "username": "otterfan04", "global_name": "Otter Fan 04" },
+    "thread": {
+      "id": "1540000000000000005",
+      "guild_id": "xstate-placeholder-server",
+      "message_count": 0,
+      "name": "Is there a dark theme for the state chart visualiser?"
+    }
+  },
+  {
+    "id": "1540000000000000004",
+    "content": "Can guards read the event that triggered a transition?",
+    "timestamp": "2026-09-04T09:00:00.000000+00:00",
+    "channel_id": "xstate-placeholder-channel-guards",
+    "author": { "username": "otterfan03", "global_name": "Otter Fan 03" },
+    "thread": {
+      "id": "1540000000000000004",
+      "guild_id": "xstate-placeholder-server",
+      "message_count": 2,
+      "name": "Can guards read the event that triggered a transition?"
+    }
+  },
+  {
+    "id": "1540000000000000003",
+    "content": "What pizza topping goes best with a long debugging session?",
+    "timestamp": "2026-09-03T09:00:00.000000+00:00",
+    "channel_id": "xstate-placeholder-channel-help",
+    "author": { "username": "otterfan02", "global_name": "Otter Fan 02" },
+    "thread": {
+      "id": "1540000000000000003",
+      "guild_id": "xstate-placeholder-server",
+      "message_count": 0,
+      "name": "What pizza topping goes best with a long debugging session?"
+    }
+  },
+  {
+    "id": "1540000000000000002",
+    "content": "Do delayed transitions restart when a machine re-enters the same state?",
+    "timestamp": "2026-09-02T09:00:00.000000+00:00",
+    "channel_id": "xstate-placeholder-channel-help",
+    "author": { "username": "otterfan02", "global_name": "Otter Fan 02" },
+    "thread": {
+      "id": "1540000000000000002",
+      "guild_id": "xstate-placeholder-server",
+      "message_count": 1,
+      "name": "Do delayed transitions restart when a machine re-enters the same state?"
+    }
+  },
+  {
+    "id": "1540000000000000001",
+    "content": "Should I stop child actors by hand when their parent machine finishes?",
+    "timestamp": "2026-09-01T09:00:00.000000+00:00",
+    "channel_id": "xstate-placeholder-channel-help",
+    "author": { "username": "otterfan01", "global_name": "Otter Fan 01" },
+    "thread": {
+      "id": "1540000000000000001",
+      "guild_id": "xstate-placeholder-server",
+      "message_count": 3,
+      "name": "Should I stop child actors by hand when their parent machine finishes?"
+    }
   }
 ]

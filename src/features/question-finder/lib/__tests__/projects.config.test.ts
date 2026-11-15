@@ -1,7 +1,7 @@
 import { Option } from "effect";
 import { describe, expect, it } from "vitest";
 
-import { findProject } from "../projects.config";
+import { findProject, PROJECTS } from "../projects.config";
 
 describe(findProject, () => {
   it("finds the Effect Project by slug", () => {
@@ -16,7 +16,24 @@ describe(findProject, () => {
     );
   });
 
+  it("finds the XState Project with more than one Channel and its own owner name", () => {
+    const xstate = Option.getOrThrow(findProject("xstate"));
+
+    expect(xstate.label).toBe("XState");
+    expect(xstate.channels.length).toBeGreaterThan(1);
+    expect(xstate.ownerName).not.toBe("josh");
+  });
+
   it("finds nothing for an unknown slug", () => {
-    expect(findProject("xstate")).toStrictEqual(Option.none());
+    expect(findProject("nope")).toStrictEqual(Option.none());
+  });
+});
+
+describe("the Project list", () => {
+  it("lists Effect first, then XState", () => {
+    expect(PROJECTS.map((project) => project.slug)).toStrictEqual([
+      "effect",
+      "xstate",
+    ]);
   });
 });

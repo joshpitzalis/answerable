@@ -16,8 +16,10 @@ const fieldDefs = [
 
 export const QuestionsView = ({
   machine,
+  title,
 }: {
   machine: ReturnType<typeof createQuestionsMachine>;
+  title: string;
 }) => {
   const [snapshot, send] = useActor(machine);
 
@@ -37,7 +39,7 @@ export const QuestionsView = ({
   if (snapshot.matches("loaded")) {
     return (
       <TableComponent
-        title="Effect Questions"
+        title={title}
         data={snapshot.context.questions}
         columns={columns}
         fieldDefs={fieldDefs}
