@@ -341,6 +341,63 @@ describe(harvestQuestions, () => {
     await expect(storedIds(runtime, XSTATE)).resolves.toStrictEqual(["100"]);
   });
 
+  it("finishes at once for a Project with no Channels", async () => {
+    const wire = fakeDiscord({ channels: {} });
+    const runtime = runtimeOver(wire.fetch);
+
+    await expect(
+      harvestQuestions(runtime, { ...XSTATE, channels: [] })
+    ).resolves.toStrictEqual([]);
+    expect(wire.channelsRead).toStrictEqual([]);
+  });
+
+  it("judges at most 4 questions of a Channel at a time", async () => {
+    let inFlight = 0;
+    let mostInFlight = 0;
+
+    const slowJudge = Layer.succeed(
+      Judge,
+      Judge.of({
+        answerable: () =>
+          Effect.gen(function* () {
+            inFlight += 1;
+            mostInFlight = Math.max(mostInFlight, inFlight);
+            yield* Effect.sleep("20 millis");
+            inFlight -= 1;
+
+            return { answerable: true };
+          }),
+      })
+    );
+
+    const wire = fakeDiscord({
+      channels: {
+        x1: Array.from({ length: 6 }, (_, index) => ({
+          content: `How do actors work, part ${index}?`,
+          id: `${100 + index}`,
+        })),
+      },
+    });
+
+    const runtime = ManagedRuntime.make(
+      Layer.mergeAll(
+        Discord.layer("token", wire.fetch),
+        Cursors.stub,
+        corpus,
+        slowJudge,
+        QuestionStore.stub
+      )
+    );
+
+    await harvestQuestions(runtime, {
+      ...XSTATE,
+      channels: [{ id: "x1", name: "xstate-help" }],
+    });
+
+    expect(mostInFlight).toBe(4);
+    await expect(storedIds(runtime, XSTATE)).resolves.toHaveLength(6);
+  });
+
   it("reads only the requested Project's Channels", async () => {
     const wire = fakeDiscord({
       channels: {

@@ -73,6 +73,23 @@ describe(listMessages, () => {
     expect(failure).toStrictEqual(
       new DiscordRateLimited({ retryAfterMs: 2500 })
     );
+    expect(failure._tag).toBe("DiscordRateLimited");
+  });
+
+  it("does not read a delay out of a failure that is not a 429", async () => {
+    const failure = await failureOf(
+      respondWith(
+        Response.json(
+          { message: "oops", retry_after: 2.5 },
+          { headers: { "Retry-After": "3" }, status: 500 }
+        )
+      )
+    );
+
+    expect(failure).toStrictEqual(
+      new DiscordFailed({ reason: "GET /channels/1/messages returned 500" })
+    );
+    expect(failure._tag).toBe("DiscordFailed");
   });
 
   it("falls back to the Retry-After header when the body has no delay", async () => {
