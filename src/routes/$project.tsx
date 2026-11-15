@@ -6,7 +6,7 @@ import { listQuestions } from "#/features/question-finder/index.ts";
 import {
   findProject,
   PROJECTS,
-} from "#/features/question-finder/lib/projects.config.ts";
+} from "#/features/question-finder/lib/projects.utils.ts";
 import { ProjectQuestions } from "#/features/question-finder/ui/ProjectQuestions.tsx";
 import { ProjectTabs } from "#/features/question-finder/ui/ProjectTabs.tsx";
 

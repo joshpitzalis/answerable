@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { findProject, PROJECTS } from "../projects.config";
+import { findProject, STUB_PROJECTS } from "../projects.utils";
 
+// The example Projects, not the owner's gitignored ones, so the expected
+// values hold on any machine.
 describe(findProject, () => {
   it("finds the Effect Project by slug", () => {
-    expect(findProject("effect")).toStrictEqual({
+    expect(findProject("effect", STUB_PROJECTS)).toStrictEqual({
       channels: [{ id: "1125094089281511474", name: "effect-help" }],
       label: "Effect",
       ownerName: "josh",
@@ -14,7 +16,7 @@ describe(findProject, () => {
   });
 
   it("finds the XState Project with more than one Channel and its own owner name", () => {
-    const xstate = findProject("xstate");
+    const xstate = findProject("xstate", STUB_PROJECTS);
 
     expect(xstate?.label).toBe("XState");
     expect(xstate?.channels.length).toBeGreaterThan(1);
@@ -22,13 +24,17 @@ describe(findProject, () => {
   });
 
   it("finds nothing for an unknown slug", () => {
-    expect(findProject("nope")).toBeUndefined();
+    expect(findProject("nope", STUB_PROJECTS)).toBeUndefined();
+  });
+
+  it("looks in the list it is given, not the owner's", () => {
+    expect(findProject("effect", [])).toBeUndefined();
   });
 });
 
-describe("the Project list", () => {
+describe("the example Project list", () => {
   it("lists Effect first, then XState", () => {
-    expect(PROJECTS.map((project) => project.slug)).toStrictEqual([
+    expect(STUB_PROJECTS.map((project) => project.slug)).toStrictEqual([
       "effect",
       "xstate",
     ]);

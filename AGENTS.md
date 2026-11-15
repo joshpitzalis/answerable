@@ -28,6 +28,11 @@ Read [CODING_STANDARDS.md](CODING_STANDARDS.md) before adding, moving, testing o
 - Machines own flow and state; Effect services do the outside work, invoked through `workflows/fromEffect.ts` ([ADR 0001](docs/adr/0001-xstate-orchestrates-effect-services.md)). No Effect import may be reachable from the browser.
 - A beta newer than pnpm's release-age window needs its exact version under `minimumReleaseAgeExclude` in `pnpm-workspace.yaml`. Check its npm provenance first.
 
+## Projects config
+
+- The owner's real Discord servers, Channels and display names live in `src/features/question-finder/lib/projects.config.ts`, which is gitignored. Never commit it or copy its values into tracked files, tests, fixtures, commit messages or PR text.
+- `projects.config.example.ts` beside it is the committed template and the stand-in when no local file exists. With no Discord token bound the server always uses the example Projects, because the stub fixture keys off their ids. Tests import the example, never the local file.
+
 ## Cloudflare via Alchemy
 
 - `alchemy.run.ts` is the single source of infrastructure: the Worker, its bindings and its secrets. There is no `wrangler.jsonc`.

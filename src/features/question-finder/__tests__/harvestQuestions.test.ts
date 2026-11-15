@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { SimulatedClock } from "xstate";
 
 import type { Project } from "../domain";
-import { EFFECT_PROJECT } from "../lib/projects.config";
+import { EFFECT_PROJECT } from "../lib/projects.config.example";
 import { Corpus } from "../services/corpus";
 import { Cursors } from "../services/cursors";
 import { Discord } from "../services/discord";

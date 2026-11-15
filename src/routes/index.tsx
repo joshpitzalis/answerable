@@ -1,6 +1,6 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 
-import { PROJECTS } from "#/features/question-finder/lib/projects.config.ts";
+import { PROJECTS } from "#/features/question-finder/lib/projects.utils.ts";
 
 export const Route = createFileRoute("/")({
   beforeLoad: () => {

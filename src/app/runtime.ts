@@ -1,6 +1,11 @@
 import { env } from "cloudflare:workers";
 import { Layer, ManagedRuntime } from "effect";
 
+import type { Project } from "@/features/question-finder/domain";
+import {
+  PROJECTS,
+  STUB_PROJECTS,
+} from "@/features/question-finder/lib/projects.utils";
 import { Corpus } from "@/features/question-finder/services/corpus";
 import { Cursors } from "@/features/question-finder/services/cursors";
 import { Discord } from "@/features/question-finder/services/discord";
@@ -29,6 +34,13 @@ const appLayer = Layer.mergeAll(
   Judge.stub,
   QuestionStore.stub
 );
+
+/**
+ * The owner's Projects when a bot token is bound; the example Projects when not,
+ * because the fixture only knows the example ids. Call it inside a handler.
+ */
+export const activeProjects = (): readonly Project[] =>
+  env.DISCORD_BOT_TOKEN ? PROJECTS : STUB_PROJECTS;
 
 /** One runtime per Worker isolate. Built on first use, not at import. */
 export const runtime = ManagedRuntime.make(appLayer);

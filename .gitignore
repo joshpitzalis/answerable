@@ -28,3 +28,6 @@ reports
 
 # Agent worktrees: nested configs break oxlint plugin loading.
 .claude/worktrees/
+
+# The owner's real Projects; projects.config.example.ts is the template.
+src/features/question-finder/lib/projects.config.ts

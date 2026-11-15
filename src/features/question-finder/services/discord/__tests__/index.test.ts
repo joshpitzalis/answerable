@@ -54,17 +54,17 @@ describe("Discord.messagesSince for the XState Channels", () => {
   it("serves each placeholder Channel's own messages, oldest first, linked under the placeholder server", async () => {
     const help = await withDiscord((discord) =>
       discord.messagesSince(
-        "795785288994652174",
+        "xstate-placeholder-channel-help",
         Option.none(),
-        "795785288994652170"
+        "xstate-placeholder-server"
       )
     );
 
     const guards = await withDiscord((discord) =>
       discord.messagesSince(
-        "1021738689434501181",
+        "xstate-placeholder-channel-guards",
         Option.none(),
-        "795785288994652170"
+        "xstate-placeholder-server"
       )
     );
 
@@ -78,7 +78,7 @@ describe("Discord.messagesSince for the XState Channels", () => {
       "1540000000000000005",
     ]);
     expect(help[0]?.url).toBe(
-      "https://discord.com/channels/795785288994652170/795785288994652174/1540000000000000001"
+      "https://discord.com/channels/xstate-placeholder-server/xstate-placeholder-channel-help/1540000000000000001"
     );
   });
 });
@@ -87,7 +87,7 @@ describe("Discord.hasReplyFrom for the XState Project", () => {
   it("is true for the XState owner in its answered thread, false for the Effect owner", async () => {
     await expect(
       withDiscord((discord) =>
-        discord.hasReplyFrom("1540000000000000002", "joshpitzalis")
+        discord.hasReplyFrom("1540000000000000002", "xstate-placeholder-owner")
       )
     ).resolves.toBeTruthy();
     await expect(
@@ -97,7 +97,7 @@ describe("Discord.hasReplyFrom for the XState Project", () => {
     ).resolves.toBeFalsy();
     await expect(
       withDiscord((discord) =>
-        discord.hasReplyFrom("1525693287409913856", "joshpitzalis")
+        discord.hasReplyFrom("1525693287409913856", "xstate-placeholder-owner")
       )
     ).resolves.toBeFalsy();
   });

@@ -1,7 +1,7 @@
 import {
   EFFECT_PROJECT,
   XSTATE_PROJECT,
-} from "#/features/question-finder/lib/projects.config";
+} from "#/features/question-finder/lib/projects.config.example";
 
 export const API = "https://discord.com/api/v9";
 

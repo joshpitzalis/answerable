@@ -1,7 +1,7 @@
 import { Layer, ManagedRuntime } from "effect";
 import { describe, expect, it } from "vitest";
 
-import { EFFECT_PROJECT, XSTATE_PROJECT } from "../lib/projects.config";
+import { EFFECT_PROJECT, XSTATE_PROJECT } from "../lib/projects.config.example";
 import { Corpus } from "../services/corpus";
 import { Cursors } from "../services/cursors";
 import { Discord } from "../services/discord";
@@ -30,8 +30,8 @@ describe("listQuestions in stub mode", () => {
     expect(
       reply.questions.map((row) => [row.channel.name, row.id]).toSorted()
     ).toStrictEqual([
-      ["general", "1540000000000000001"],
-      ["help", "1540000000000000004"],
+      ["xstate-guards", "1540000000000000004"],
+      ["xstate-help", "1540000000000000001"],
     ]);
   });
 
