@@ -5,6 +5,7 @@ import { useActor } from "@xstate/react";
 
 import { TableComponent } from "#/components/Table.tsx";
 
+import { FailedChannelsBanner } from "./FailedChannelsBanner";
 import type { createQuestionsMachine } from "./questionsMachine";
 import { columns } from "./TableColumn";
 
@@ -36,14 +37,19 @@ export const QuestionsView = ({
 
   if (snapshot.matches("loaded")) {
     return (
-      <TableComponent
-        title="Effect Questions"
-        data={snapshot.context.questions}
-        columns={columns}
-        fieldDefs={fieldDefs}
-        idKey="id"
-        searchPlaceholder="Search questions..."
-      />
+      <>
+        <FailedChannelsBanner
+          failedChannels={snapshot.context.failedChannels}
+        />
+        <TableComponent
+          title="Effect Questions"
+          data={snapshot.context.questions}
+          columns={columns}
+          fieldDefs={fieldDefs}
+          idKey="id"
+          searchPlaceholder="Search questions..."
+        />
+      </>
     );
   }
 
