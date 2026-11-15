@@ -4,8 +4,9 @@ import { setup, types } from "xstate";
 
 import type {
   Channel,
+  ChannelFunnel,
   DiscordMessage,
-  FailedChannel,
+  HarvestStep,
   Project,
   QuestionsRow,
   Snowflake,
@@ -40,7 +41,7 @@ const reasonOf = ({ error }: StepErrorEvent): string =>
     Match.orElse(String)
   );
 
-type Step = "fetching" | "checkingReplies" | "judging" | "saving";
+type Step = HarvestStep;
 
 /** Retries a Channel run gets after Discord rate-limits it, across all its steps. */
 const MAX_RETRIES = 2;
@@ -56,6 +57,8 @@ interface ChannelContext {
   /** The step that failed or was rate-limited, so `waiting` can re-enter it. */
   failedStep: Step | null;
   reason: string | null;
+  /** How many were left after each step, for the funnel. */
+  counts: Pick<ChannelFunnel, "kept" | "questions" | "read" | "unanswered">;
   /** Rate-limit retries used so far in this Channel run. */
   retries: number;
   /** How long Discord asked the Channel to wait. */
@@ -122,7 +125,7 @@ export const createChannelHarvestMachine = (
     schemas: {
       input: types<{ project: Project; channel: Channel }>(),
       context: types<ChannelContext>(),
-      output: types<FailedChannel | null>(),
+      output: types<ChannelFunnel>(),
     },
   }).createMachine({
     context: ({ input }) => ({
@@ -133,6 +136,7 @@ export const createChannelHarvestMachine = (
       newest: null,
       failedStep: null,
       reason: null,
+      counts: { kept: 0, questions: 0, read: 0, unanswered: 0 },
       retries: 0,
       waitMs: 0,
     }),
@@ -152,10 +156,18 @@ export const createChannelHarvestMachine = (
               return { target: "done" };
             }
 
+            const batch = event.output.filter(looksLikeAQuestion);
+
             return {
               target: "checkingReplies",
               context: {
-                batch: event.output.filter(looksLikeAQuestion),
+                batch,
+                counts: {
+                  kept: 0,
+                  questions: batch.length,
+                  read: event.output.length,
+                  unanswered: 0,
+                },
                 newest: newest.id,
               },
             };
@@ -170,9 +182,12 @@ export const createChannelHarvestMachine = (
             project: context.project,
             messages: context.batch,
           }),
-          onDone: ({ event }) => ({
+          onDone: ({ context, event }) => ({
             target: "judging",
-            context: { batch: event.output },
+            context: {
+              batch: event.output,
+              counts: { ...context.counts, unanswered: event.output.length },
+            },
           }),
           onError: failedIn("checkingReplies"),
         },
@@ -185,9 +200,12 @@ export const createChannelHarvestMachine = (
             channel: context.channel,
             messages: context.batch,
           }),
-          onDone: ({ event }) => ({
+          onDone: ({ context, event }) => ({
             target: "saving",
-            context: { rows: event.output },
+            context: {
+              counts: { ...context.counts, kept: event.output.length },
+              rows: event.output,
+            },
           }),
           onError: failedIn("judging"),
         },
@@ -214,9 +232,13 @@ export const createChannelHarvestMachine = (
       done: { type: "final" },
       failed: { type: "final" },
     },
-    output: ({ context }) =>
-      context.reason === null
-        ? null
-        : { name: context.channel.name, reason: context.reason },
+    output: ({ context }) => ({
+      ...context.counts,
+      channel: context.channel.name,
+      failure:
+        context.reason === null || context.failedStep === null
+          ? null
+          : { reason: context.reason, step: context.failedStep },
+    }),
   });
 };
