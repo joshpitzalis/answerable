@@ -1,6 +1,6 @@
 import { Context, Effect, Layer } from "effect";
 
-import type { QuestionsRow } from "../schema";
+import type { QuestionsRow } from "../domain";
 
 export class QuestionStore extends Context.Service<
   QuestionStore,

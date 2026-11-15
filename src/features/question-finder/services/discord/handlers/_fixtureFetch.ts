@@ -1,4 +1,4 @@
-import { ME } from "@/features/question-finder/lib/constants";
+import { ME } from "@/features/question-finder/lib/config";
 import FIXTURE from "@/features/question-finder/services/_fixtures/messages.json" with { type: "json" };
 import { ANSWERED_THREADS } from "@/features/question-finder/services/discord/lib/constants";
 

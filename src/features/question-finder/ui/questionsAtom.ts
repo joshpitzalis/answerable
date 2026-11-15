@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 import { Atom } from "effect/reactivity";
 
-import { listQuestions } from "./server";
+import { listQuestions } from "../index";
 
 export class QuestionsUnavailable extends Schema.TaggedError<QuestionsUnavailable>()(
   "QuestionsUnavailable",
