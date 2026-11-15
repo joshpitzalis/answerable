@@ -11,14 +11,18 @@ export type Post = Schema.Schema.Type<typeof Post>;
 
 export class Corpus extends Context.Service<
   Corpus,
-  { readonly all: () => Effect.Effect<readonly Post[]> }
+  {
+    readonly all: (projectSlug: string) => Effect.Effect<readonly Post[]>;
+  }
 >()("app/Corpus") {
   static readonly stub = Layer.sync(Corpus, () =>
-    Corpus.of({ all: () => Effect.succeed(STUB_POSTS) })
+    Corpus.of({
+      all: (projectSlug) => Effect.succeed(stubPostsFor(projectSlug)),
+    })
   );
 }
 
-const STUB_POSTS: readonly Post[] = [
+const EFFECT_POSTS: readonly Post[] = [
   {
     slug: "layers-once-per-isolate",
     title: "Building Effect Layers once per Worker isolate",
@@ -30,3 +34,6 @@ const STUB_POSTS: readonly Post[] = [
     body: "Parse, don't validate — the seam is where unknown becomes typed…",
   },
 ];
+
+const stubPostsFor = (projectSlug: string): readonly Post[] =>
+  projectSlug === "effect" ? EFFECT_POSTS : [];

@@ -11,24 +11,27 @@ const RAW = {
 };
 
 describe(toMessage, () => {
-  it("falls back to the message itself when there is no thread", () => {
-    expect(toMessage(RAW)).toStrictEqual({
+  it("falls back to the message itself and the given server when there is no thread", () => {
+    expect(toMessage(RAW, "42")).toStrictEqual({
       authorName: "ada",
       content: "hi",
       createdAt: new Date("2026-08-10T00:00:00Z"),
       id: "9",
       replyCount: 0,
       threadId: "9",
-      url: "https://discord.com/channels/795981131316985866/7/9",
+      url: "https://discord.com/channels/42/7/9",
     });
   });
 
   it("prefers the display name and the thread's own guild and count", () => {
-    const message = toMessage({
-      ...RAW,
-      author: { global_name: "Ada L", username: "ada" },
-      thread: { guild_id: "1", id: "55", message_count: 3 },
-    });
+    const message = toMessage(
+      {
+        ...RAW,
+        author: { global_name: "Ada L", username: "ada" },
+        thread: { guild_id: "1", id: "55", message_count: 3 },
+      },
+      "42"
+    );
 
     expect(message).toMatchObject({
       authorName: "Ada L",

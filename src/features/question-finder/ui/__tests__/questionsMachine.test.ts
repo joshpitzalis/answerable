@@ -6,6 +6,8 @@ import { createQuestionsMachine } from "../questionsMachine";
 
 const row: QuestionsRow = {
   id: "1",
+  project: "effect",
+  channel: { id: "2", name: "effect-help" },
   name: "Ada",
   comments: 2,
   question: "How do I retry an Effect?",

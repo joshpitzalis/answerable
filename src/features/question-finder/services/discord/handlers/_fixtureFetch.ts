@@ -1,4 +1,4 @@
-import { ME } from "@/features/question-finder/lib/config";
+import { EFFECT_PROJECT } from "@/features/question-finder/lib/projects.config";
 import FIXTURE from "@/features/question-finder/services/_fixtures/messages.json" with { type: "json" };
 import { ANSWERED_THREADS } from "@/features/question-finder/services/discord/lib/constants";
 
@@ -40,7 +40,7 @@ const replies = (threadId: string) =>
           content: "Covered in an earlier post.",
           timestamp: "2026-08-10T00:00:00.000+00:00",
           channel_id: threadId,
-          author: { username: ME, global_name: null },
+          author: { username: EFFECT_PROJECT.ownerName, global_name: null },
         },
       ]
     : [];

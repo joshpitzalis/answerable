@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { Discord } from "../index";
 
+const SERVER = "795981131316985866";
 const CHANNEL = "1125094089281511474";
 const ANSWERED_THREAD = "1525693287409913856";
 const OPEN_THREAD = "1534145198391693322";
@@ -20,7 +21,7 @@ const withDiscord = <A, E>(
 describe("Discord.messagesSince", () => {
   it("returns a channel's messages oldest first", async () => {
     const messages = await withDiscord((discord) =>
-      discord.messagesSince(CHANNEL, Option.none())
+      discord.messagesSince(CHANNEL, Option.none(), SERVER)
     );
 
     expect(messages).toHaveLength(10);
@@ -39,7 +40,7 @@ describe("Discord.messagesSince", () => {
 
   it("returns only messages after the cursor", async () => {
     const messages = await withDiscord((discord) =>
-      discord.messagesSince(CHANNEL, Option.some("1526704420086353921"))
+      discord.messagesSince(CHANNEL, Option.some("1526704420086353921"), SERVER)
     );
 
     expect(messages.map((message) => message.id)).toStrictEqual([
