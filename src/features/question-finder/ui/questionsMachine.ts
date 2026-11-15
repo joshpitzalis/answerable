@@ -1,6 +1,11 @@
 import { createAsyncLogic, setup, types } from "xstate";
 
-import type { FailedChannel, QuestionsReply, QuestionsRow } from "../domain";
+import type {
+  ContributorStats,
+  FailedChannel,
+  QuestionsReply,
+  QuestionsRow,
+} from "../domain";
 
 export const createQuestionsMachine = (load: () => Promise<QuestionsReply>) => {
   const loadQuestions = createAsyncLogic<QuestionsReply>({ run: () => load() });
@@ -11,12 +16,18 @@ export const createQuestionsMachine = (load: () => Promise<QuestionsReply>) => {
       context: types<{
         questions: QuestionsRow[];
         failedChannels: FailedChannel[];
+        contributorStats: ContributorStats | null;
         reason: string | null;
       }>(),
       events: { retry: types<Record<string, never>>() },
     },
   }).createMachine({
-    context: { questions: [], failedChannels: [], reason: null },
+    context: {
+      questions: [],
+      failedChannels: [],
+      contributorStats: null,
+      reason: null,
+    },
     initial: "loading",
     states: {
       loading: {
@@ -27,6 +38,7 @@ export const createQuestionsMachine = (load: () => Promise<QuestionsReply>) => {
             context: {
               questions: event.output.questions,
               failedChannels: event.output.failedChannels,
+              contributorStats: event.output.contributorStats,
               reason: null,
             },
           }),

@@ -5,8 +5,12 @@ import { useActor } from "@xstate/react";
 import { useMemo } from "react";
 
 import { TableComponent } from "#/components/Table.tsx";
-import type { QuestionsRow } from "#/features/question-finder/domain";
+import type {
+  ContributorStats,
+  QuestionsRow,
+} from "#/features/question-finder/domain";
 
+import { contributorStatsLabel } from "../lib/contributorStats.utils";
 import { toFieldDefs, toTableRows } from "../lib/questionsTable.utils";
 import { FailedChannelsBanner } from "./FailedChannelsBanner";
 import type { createQuestionsMachine } from "./questionsMachine";
@@ -15,9 +19,11 @@ import { columns } from "./TableColumn";
 const QuestionsTable = ({
   questions,
   title,
+  stats,
 }: {
   questions: QuestionsRow[];
   title: string;
+  stats: ContributorStats | null;
 }) => {
   const rows = useMemo(() => toTableRows(questions), [questions]);
   const fieldDefs = useMemo(() => toFieldDefs(rows), [rows]);
@@ -25,6 +31,7 @@ const QuestionsTable = ({
   return (
     <TableComponent
       title={title}
+      subtitle={contributorStatsLabel(stats) ?? undefined}
       data={rows}
       columns={columns}
       fieldDefs={fieldDefs}
@@ -62,7 +69,11 @@ export const QuestionsView = ({
         <FailedChannelsBanner
           failedChannels={snapshot.context.failedChannels}
         />
-        <QuestionsTable questions={snapshot.context.questions} title={title} />
+        <QuestionsTable
+          questions={snapshot.context.questions}
+          title={title}
+          stats={snapshot.context.contributorStats}
+        />
       </>
     );
   }

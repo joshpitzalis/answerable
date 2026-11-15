@@ -2,6 +2,8 @@ import { Effect } from "effect";
 import type { ManagedRuntime } from "effect";
 
 import type { Project, QuestionsReply } from "../domain";
+import { contributorStats } from "../domain";
+import { Contributions } from "../services/contributions";
 import { QuestionStore } from "../services/question-store";
 import { harvestQuestions } from "./harvestQuestions";
 import type { HarvestServices } from "./harvestSteps";
@@ -19,13 +21,21 @@ export const listQuestions = async (
 ): Promise<QuestionsReply> => {
   const failedChannels = await harvestQuestions(runtime, project);
 
-  const questions = await runtime.runPromise(
+  const { questions, counts } = await runtime.runPromise(
     Effect.gen(function* () {
       const store = yield* QuestionStore;
+      const contributions = yield* Contributions;
 
-      return yield* store.listOpen(project.slug);
+      return {
+        counts: yield* contributions.responseCounts(project.slug),
+        questions: yield* store.listOpen(project.slug),
+      };
     })
   );
 
-  return { failedChannels, questions };
+  return {
+    contributorStats: contributorStats(counts),
+    failedChannels,
+    questions,
+  };
 };

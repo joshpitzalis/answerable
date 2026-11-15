@@ -77,6 +77,24 @@ test("each Project has a tab with its own URL, marked when current, showing only
   await expect(page.getByText(/dark theme/u)).toHaveCount(0);
 });
 
+test("each Project's headline shows its contributor statistic, worked out from the fixture", async ({
+  page,
+}) => {
+  await page.goto("/effect");
+
+  // Ten authors with one message each: mean 1.0, SD 0, so 1.
+  await expect(
+    page.getByText("avg 1.0 responses per contributor (1 = +1 SD)")
+  ).toBeVisible();
+
+  await page.getByRole("link", { name: "XState", exact: true }).click();
+
+  // Four authors with 1, 2, 1 and 1 messages: mean 1.25 (shown 1.3), SD 0.433, mean + SD 1.68, so 2.
+  await expect(
+    page.getByText("avg 1.3 responses per contributor (2 = +1 SD)")
+  ).toBeVisible();
+});
+
 test("the Effect tab shows its single Channel in the Channel column", async ({
   page,
 }) => {

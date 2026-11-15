@@ -6,6 +6,7 @@ import { SimulatedClock } from "xstate";
 
 import type { Project } from "../domain";
 import { EFFECT_PROJECT } from "../lib/projects.config.example";
+import { Contributions } from "../services/contributions";
 import { Corpus } from "../services/corpus";
 import { Cursors } from "../services/cursors";
 import { Discord } from "../services/discord";
@@ -67,6 +68,7 @@ const runtimeOver = (
     Layer.mergeAll(
       Discord.layer("token", fetch),
       Cursors.stub,
+      Contributions.stub,
       corpus,
       Judge.stub,
       store
@@ -79,6 +81,7 @@ const liveRuntimeOver = (fetch: typeof globalThis.fetch) =>
     Layer.mergeAll(
       Discord.layerSkippingReplyCheck("token", fetch),
       Cursors.stub,
+      Contributions.stub,
       corpus,
       Judge.everythingAnswerable,
       QuestionStore.stub
@@ -730,6 +733,7 @@ describe(harvestQuestions, () => {
       Layer.mergeAll(
         Discord.layer("token", wire.fetch),
         Cursors.stub,
+        Contributions.stub,
         corpus,
         slowJudge,
         QuestionStore.stub

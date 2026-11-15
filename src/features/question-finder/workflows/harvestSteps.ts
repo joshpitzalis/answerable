@@ -8,6 +8,7 @@ import type {
   Snowflake,
 } from "../domain";
 import { toRow } from "../domain";
+import { Contributions } from "../services/contributions";
 import { Corpus } from "../services/corpus";
 import { Cursors } from "../services/cursors";
 import { Discord } from "../services/discord";
@@ -17,6 +18,7 @@ import { QuestionStore } from "../services/question-store";
 export type HarvestServices =
   | Discord
   | Cursors
+  | Contributions
   | Corpus
   | Judge
   | QuestionStore;
@@ -36,9 +38,17 @@ export const fetchNewMessages = (input: {
       cursors.get(input.channel.id)
     );
 
-    return yield* Discord.use((discord) =>
+    const messages = yield* Discord.use((discord) =>
       discord.messagesSince(input.channel.id, cursor, input.project.serverId)
     );
+
+    // Recorded as soon as they are read: a later step failing leaves the cursor
+    // behind, and the re-read must not count them twice.
+    yield* Contributions.use((contributions) =>
+      contributions.record(input.project.slug, messages)
+    );
+
+    return messages;
   });
 
 export const dropRepliedThreads = (input: {

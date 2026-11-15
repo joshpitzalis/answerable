@@ -7,6 +7,8 @@
 export interface WireMessage {
   readonly id: string;
   readonly content: string;
+  /** Display name of the author; "ada" when left out. */
+  readonly author?: string;
 }
 
 /** A forum post as the wire serves it: a thread plus its first message. */
@@ -15,6 +17,8 @@ export interface WirePost {
   readonly id: string;
   readonly title: string;
   readonly content: string;
+  /** Display name of the first message's author; "ada" when left out. */
+  readonly author?: string;
   /** The thread's `message_count`. */
   readonly replyCount?: number;
   /** The wire lists the post but returns no first message for it. */
@@ -171,7 +175,9 @@ export const fakeDiscord = ({
         Response.json({
           first_messages: newest
             .filter((post) => post.withoutFirstMessage !== true)
-            .map((post) => raw(post.id, post.id, post.content, "ada")),
+            .map((post) =>
+              raw(post.id, post.id, post.content, post.author ?? "ada")
+            ),
           has_more: offset + pageSize < newestFirst.length,
           members: [],
           threads: newest.map((post) => rawPost(id, post)),
@@ -210,7 +216,9 @@ export const fakeDiscord = ({
     return Promise.resolve(
       Response.json(
         page
-          .map((message) => raw(id, message.id, message.content, "ada"))
+          .map((message) =>
+            raw(id, message.id, message.content, message.author ?? "ada")
+          )
           .toReversed()
       )
     );
