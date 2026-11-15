@@ -9,6 +9,7 @@ const row = (id: string, project: string, question = "q"): QuestionsRow => ({
   comments: 0,
   dateAsked: new Date("2026-08-01T00:00:00Z"),
   id,
+  isPost: false,
   name: "ada",
   project,
   question,

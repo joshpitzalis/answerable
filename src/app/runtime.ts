@@ -27,11 +27,19 @@ import { QuestionStore } from "@/features/question-finder/services/question-stor
  */
 const appLayer = Layer.mergeAll(
   Layer.suspend(() =>
-    env.DISCORD_BOT_TOKEN ? Discord.layer(env.DISCORD_BOT_TOKEN) : Discord.stub
+    // The reply check is off while live (one fewer Discord call per question);
+    // swap in `Discord.layer` to turn it back on.
+    env.DISCORD_BOT_TOKEN
+      ? Discord.layerSkippingReplyCheck(env.DISCORD_BOT_TOKEN)
+      : Discord.stub
   ),
   Cursors.stub,
   Corpus.stub,
-  Judge.stub,
+  // The owner has no real Posts yet: with a token bound the stub Posts must not
+  // decide what shows. Without one, the stub Judge keeps the fixture honest.
+  Layer.suspend(() =>
+    env.DISCORD_BOT_TOKEN ? Judge.everythingAnswerable : Judge.stub
+  ),
   QuestionStore.stub
 );
 

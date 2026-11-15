@@ -8,6 +8,9 @@ import { discordGet } from "./discordGet";
 /** Discord channel types whose threads are posts: forum and media channels. */
 const POST_CHANNEL_TYPES: ReadonlySet<number> = new Set([15, 16]);
 
+/** The most posts Discord serves in one `threads/search` page. */
+export const POST_PAGE = 25;
+
 /** Whether `channelId` is a forum (or media) Channel, whose posts are its questions. */
 export const isPostChannel = Effect.fn("Discord.isPostChannel")(function* (
   channelId: string,
@@ -26,17 +29,21 @@ export const isPostChannel = Effect.fn("Discord.isPostChannel")(function* (
 /**
  * A forum Channel's active posts, newest first, with each post's first message.
  *
- * ponytail: only the 10 newest active posts are read per Harvest, as with text
- * Channels' 10 messages. Archived posts are never listed. Upgrade path: also
- * read `archived=true`, and page with `offset` (`has_more`) until the cursor.
+ * Discord serves at most 25 posts a page (`limit` above that is a 400), so
+ * `offset` picks the page.
+ *
+ * ponytail: only the 50 newest active posts are read per Harvest (two pages),
+ * as with text Channels' 50 messages. Archived posts are never listed. Upgrade
+ * path: also read `archived=true`, and page on (`has_more`) until the cursor.
  */
 export const listPosts = Effect.fn("Discord.listPosts")(function* (
   channelId: string,
   token: string,
-  fetch: typeof globalThis.fetch
+  fetch: typeof globalThis.fetch,
+  offset = 0
 ) {
   const body = yield* discordGet(
-    `/channels/${channelId}/threads/search?archived=false&sort_by=creation_time&sort_order=desc&limit=10&offset=0`,
+    `/channels/${channelId}/threads/search?archived=false&sort_by=creation_time&sort_order=desc&limit=${POST_PAGE}&offset=${offset}`,
     token,
     fetch
   );

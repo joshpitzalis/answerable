@@ -51,7 +51,10 @@ export const WIRE_GUILD = "wire-guild";
 
 const TEXT_CHANNEL = 0;
 const FORUM_CHANNEL = 15;
-const NEWEST_POSTS = 10;
+
+/** The most posts Discord serves per `threads/search` page. */
+const MAX_POST_PAGE = 25;
+const DEFAULT_PAGE = 25;
 
 const raw = (
   channelId: string,
@@ -135,15 +138,41 @@ export const fakeDiscord = ({
     if (posts !== undefined) {
       channelsRead.push(id);
 
+      const pageSize = Number(url.searchParams.get("limit") ?? DEFAULT_PAGE);
+      const offset = Number(url.searchParams.get("offset") ?? 0);
+
+      // Discord's own refusal of a page larger than it serves.
+      if (pageSize > MAX_POST_PAGE) {
+        return Promise.resolve(
+          Response.json(
+            {
+              errors: {
+                limit: {
+                  _errors: [
+                    {
+                      code: "NUMBER_TYPE_MAX",
+                      message: `int value should be less than or equal to ${MAX_POST_PAGE}.`,
+                    },
+                  ],
+                },
+              },
+              message: "Invalid Form Body",
+            },
+            { status: 400 }
+          )
+        );
+      }
+
       // Newest first, and no more than the page asked for.
-      const newest = posts.toReversed().slice(0, NEWEST_POSTS);
+      const newestFirst = posts.toReversed();
+      const newest = newestFirst.slice(offset, offset + pageSize);
 
       return Promise.resolve(
         Response.json({
           first_messages: newest
             .filter((post) => post.withoutFirstMessage !== true)
             .map((post) => raw(post.id, post.id, post.content, "ada")),
-          has_more: false,
+          has_more: offset + pageSize < newestFirst.length,
           members: [],
           threads: newest.map((post) => rawPost(id, post)),
           total_results: posts.length,
@@ -165,10 +194,22 @@ export const fakeDiscord = ({
 
     channelsRead.push(id);
 
+    const messageLimit = Number(url.searchParams.get("limit") ?? 50);
+
+    // Discord returns the page of messages right after the cursor, or the
+    // newest page when there is none; the page comes back newest first.
+    const wanted = inChannel.filter(
+      (message) => after === null || message.id > after
+    );
+
+    const page =
+      after === null
+        ? wanted.slice(-messageLimit)
+        : wanted.slice(0, messageLimit);
+
     return Promise.resolve(
       Response.json(
-        inChannel
-          .filter((message) => after === null || message.id > after)
+        page
           .map((message) => raw(id, message.id, message.content, "ada"))
           .toReversed()
       )

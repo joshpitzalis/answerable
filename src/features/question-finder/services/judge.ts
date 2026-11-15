@@ -49,4 +49,13 @@ export class Judge extends Context.Service<
         }),
     })
   );
+
+  /**
+   * Calls every question answerable and cites no Post. Wired while the owner
+   * has no real Posts, so the stub Posts do not decide what shows; the AI Judge
+   * replaces it.
+   */
+  static readonly everythingAnswerable = Layer.sync(Judge, () =>
+    Judge.of({ answerable: () => Effect.succeed({ answerable: true }) })
+  );
 }
