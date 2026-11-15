@@ -1,6 +1,6 @@
 # CODING_STANDARDS.md
 
-The single source of truth for how code in this repository is laid out, written and tested. Read it before adding or moving code and again when reviewing. Package ownership, dependencies and Nx inputs are in [package architecture](docs/agents/architecture.md).
+The single source of truth for how code in this repository is laid out, written and tested. Read it before adding or moving code and again when reviewing. This is a single app: the composition root is `src/app`, features live under `src/features/`, shared code under `src/shared` and `src/components`, and end-to-end tests are Playwright specs under `e2e/`.
 
 TypeScript + Effect. Follow the installed versions and existing tooling.
 
@@ -10,11 +10,11 @@ Apply these conventions to all new and substantially changed code: features, fix
 
 ## Feature ownership
 
-- Build self-contained vertical slices under `src/features/` of the package that ships them (an app, or a feature package under `packages/api/*` or `packages/dashboard/*`).
+- Build self-contained vertical slices under `src/features/`.
 - A feature represents a business capability; workflows represent actions within it.
 - Keep a feature's code, UI, tests and supporting files together. Removing a feature should mean deleting its folder plus minimal external registration.
 - Cross features only through their explicit public exports (`index.ts`); never import another feature's internals.
-- Features depend on capabilities, not providers: call `Email.sendPasswordResetEmail(to, link)`, never `SesClient.send(command)`.
+- Features depend on capabilities, not providers: call `Discord.listMessages(...)`, never `fetch` against the Discord API.
 
 ## Structure
 
@@ -23,47 +23,48 @@ Start with files; introduce folders only as needed. Never scaffold empty files.
 ```text
 src/
   features/
-    installation/
+    question-finder/
       index.ts
       domain.ts
       workflows/
-        startAssembly.ts
+        harvestQuestions.ts
       services/
-        installationRepository.ts
+        corpus.ts
       subscriptions.ts
       ui/
       lib/
       __tests__/
   shared/
+  components/
+  app/
 ```
 
 | Path | What goes here |
 | --- | --- |
 | `index.ts` | The feature's entry and its only trust boundary: the one file that sees `unknown`. Parses untrusted input from any transport (request body, URL search params, queue message, CLI args), calls one workflow, maps the reply and errors (status codes included), and re-exports the feature's public API. |
-| `domain.ts` | Business types, entities, value objects, events, read models, domain errors and pure rules, including rules that span several objects (the caller loads the data). No HTTP, database or framework imports. When `domain.ts` grows into `domain/`, name each split file `<name>.<kind>.ts`, where kind is `entities`, `values`, `rules`, `events`, `errors` or `read-models` (`ritual.entities.ts`, `cadence.values.ts`, `keeper-access.rules.ts`, `ritual-kept.events.ts`, `slug.errors.ts`, `ritual-board.read-models.ts`). |
-| `workflows/` | One file per user intention (`startAssembly`, `deleteProject`). Coordinates domain behaviour and service calls through service contracts. No React. |
+| `domain.ts` | Business types, entities, value objects, events, read models, domain errors and pure rules, including rules that span several objects (the caller loads the data). No HTTP, database or framework imports. When `domain.ts` grows into `domain/`, name each split file `<name>.<kind>.ts`, where kind is `entities`, `values`, `rules`, `events`, `errors` or `read-models` (`question.entities.ts`, `cursor.values.ts`, `answered.rules.ts`, `question-kept.events.ts`, `channel.errors.ts`, `question-row.read-models.ts`). |
+| `workflows/` | One file per user intention (`harvestQuestions`, `listQuestions`). Coordinates domain behaviour and service calls through service contracts. No React. |
 | `services/` | IO used only by this feature. Each service starts as one file holding its Effect contract, live implementation and Layer. |
 | `subscriptions.ts` | Reactions to another feature's events. Only once a real subscriber exists. |
 | `ui/` | Frontend components (one `.tsx` file each) and hooks. A component imports domain and calls workflows through hooks; it never imports services or `index.ts` internals. |
-| `lib/` | Pure leftovers that are not domain or workflows: static config, constants, small helpers and formatters. No IO. Prefer the named files first. Name each file `<name>.<kind>.ts`, where kind is `utils`, `config` or `errors` (`runbook-link.utils.ts`, `cadence.config.ts`, `assembly.errors.ts`); a folder needing only one file of a kind may use the bare `utils.ts`, `config.ts` or `errors.ts`. |
+| `lib/` | Pure leftovers that are not domain or workflows: static config, constants, small helpers and formatters. No IO. Prefer the named files first. Name each file `<name>.<kind>.ts`, where kind is `utils`, `config` or `errors` (`questionsTable.utils.ts`, `projects.config.example.ts`, `channel.errors.ts`); a folder needing only one file of a kind may use the bare `utils.ts`, `config.ts` or `errors.ts`. |
 | `__tests__/` | Tests, fixtures and test helpers. One test file per source file (`domain.ts` → `__tests__/domain.test.ts`); component tests keep `.tsx`. Name test data `<name>.fixtures.ts` and shared render or setup helpers `<name>.test-utils.ts(x)`. |
 
 Entities enforce their invariants, delegating to domain rules when useful. Workflows must not bypass them.
 
-Wiring happens only in the app's composition root (`apps/api`, `apps/dashboard`): it provides live layers and registers routes. Features do not add a `layer.ts`. Framework-required routes and external registration stay thin. Keep frontend imports separate from server implementations and secrets.
+Wiring happens only in the app's composition root (`src/app`, with the thin route files in `src/routes`): it provides live layers and registers routes. Features do not add a `layer.ts`. Framework-required routes and external registration stay thin. Keep frontend imports separate from server implementations and secrets.
 
 ### Where IO lives
 
 - IO used by one feature only: that feature's `services/`.
-- IO used by more than one feature: a services package, `packages/services/{data,infra,browser,telemetry}`, which keeps its `service.ts`, `Live.ts` and `Test.ts` layout. See [which services package](docs/agents/architecture.md#which-services-package).
-- When a feature-local service gains a second user, move it to a services package.
+- IO used by more than one feature: `src/shared/<purpose>/`.
+- When a feature-local service gains a second user, move it to `src/shared/<purpose>/`.
 
 Provider-specific detail stays inside the service's live implementation. A feature never creates an SDK client, database client or API wrapper itself, and never reads `process.env` or secrets directly. If a service owns a resource, its live implementation defines how it is released (Effect scopes, layers or `Effect.acquireRelease`).
 
 ### Where shared code lives
 
-- Shared by several packages: `packages/domain` for domain rules and value objects, `packages/read-models` for the shapes the dashboard receives, or a services package for IO.
-- Shared technical code within one package: `src/shared/<purpose>/`, for example `src/shared/hooks/` for generic, domain-free React hooks. Shared code never depends on features. Domain types shared by several features usually mean a feature boundary is wrong; flag it rather than moving them to `shared/`.
+- Shared technical code: `src/shared/<purpose>/`, for example `src/shared/hooks/` for generic, domain-free React hooks. Generic, domain-free UI components: `src/components/`. Shared code never depends on features. Domain types shared by several features usually mean a feature boundary is wrong; flag it rather than moving them to `shared/`.
 
 ### React hooks
 
@@ -97,9 +98,9 @@ Ask in order and stop at the first yes:
 5. Is it one intention a user can express? A workflow.
 6. Does it return JSX, or hold React state? `ui/`.
 7. Does it react to another feature's event? `subscriptions.ts`.
-8. Does it touch a database, network, filesystem or clock? A service: the feature's `services/` if only this feature uses it, otherwise a services package.
+8. Does it touch a database, network, filesystem or clock? A service: the feature's `services/` if only this feature uses it, otherwise `src/shared/<purpose>/`.
 9. Does it parse untrusted input, serialise a reply or map errors to status codes? `index.ts`.
-10. Is it a query-only shape with no invariants? A read model in `domain`, or `packages/read-models` if the dashboard receives it over the wire.
+10. Is it a query-only shape with no invariants? A read model in `domain`.
 11. Is it technical code used by several features? `src/shared/<purpose>/`.
 12. None of the above? `lib/` if it is pure, otherwise `other/` (see below).
 
@@ -128,14 +129,14 @@ Start:
 
 ```text
 workflows/
-  startAssembly.ts
+  harvestQuestions.ts
 ```
 
-As `startAssembly.ts` grows:
+As `harvestQuestions.ts` grows:
 
 ```text
 workflows/
-  startAssembly/
+  harvestQuestions/
     index.ts
     helpers.ts
     lib/
@@ -148,17 +149,17 @@ As `helpers.ts` or `utils.ts` grows:
 
 ```text
 workflows/
-  startAssembly/
+  harvestQuestions/
     index.ts
     helpers/
       index.ts
-      loadAssemblyDetails.ts
-      prepareAssembly.ts
+      readChannel.ts
+      keepQuestions.ts
     lib/
       errors.ts
       utils/
         index.ts
-        formatCurrency.ts
+        formatDate.ts
       config.ts
 ```
 
@@ -190,11 +191,19 @@ Place each test at the cheapest level where the bug it guards against would turn
 | The behaviour is… | Its test lives in… |
 | --- | --- |
 | A rule, calculation or state transition | a unit test beside `domain.ts` / `constraints.ts` |
-| An endpoint's contract: status, body, refusal, role gate, persistence | an api integration test (real SQLite, milliseconds) |
+| An entry point's contract: reply, status, refusal | an `index.ts` test against fake service Layers |
 | What a component renders for a given state, and what it sends | a component test (Vitest + Testing Library) |
-| A user journey that needs a real browser and the full stack | a Cypress spec |
+| A user journey that needs a real browser and the full stack | a Playwright spec in `e2e/` |
 
-A Cypress spec proves a **journey**: real navigation across routes, cross-feature wiring (a change here shows up there), auth redirects, or layout that jsdom cannot measure. Edge cases, refusals and variations of a journey belong one level down; the spec keeps the happy path. Before adding or changing a Cypress spec, read [`apps/dashboard/cypress/README.md`](apps/dashboard/cypress/README.md).
+A Playwright spec proves a **journey**: real navigation across routes, cross-feature wiring (a change here shows up there), or layout that jsdom cannot measure. Edge cases, refusals and variations of a journey belong one level down; the spec keeps the happy path.
+
+## Where this file and a spec differ
+
+This file sets the floor for tests: a spec's testing section may add tests, not remove them.
+
+## Mutation testing at review time
+
+Run `pnpm mutate:changed` (Stryker on the source files changed since the merge-base with `origin/main`) when reviewing. Kill every survivor with a test, or say why it is equivalent.
 
 ## Clickable surfaces must look clickable
 
