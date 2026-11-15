@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { Effect } from "effect";
+
 import { CHANNELS, ME } from "./lib/constants";
 import { toRow } from "./lib/DTOs";
 import { looksLikeAQuestion } from "./lib/utils";
@@ -22,44 +23,47 @@ import { Corpus, Cursors, Discord, Judge, QuestionStore } from "./services";
  */
 
 const harvestChannel = Effect.fn("harvestChannel")(function* (
-	channelId: string,
+  channelId: string
 ) {
-	const discord = yield* Discord;
-	const cursor = yield* Cursors.use((cursors) => cursors.get(channelId));
-	const messages = yield* discord.messagesSince(channelId, cursor);
+  const discord = yield* Discord;
+  const cursor = yield* Cursors.use((cursors) => cursors.get(channelId));
+  const messages = yield* discord.messagesSince(channelId, cursor);
 
-	const newest = messages.at(-1);
-	if (newest === undefined) return [];
+  const newest = messages.at(-1);
 
-	const asking = messages.filter(looksLikeAQuestion);
+  if (newest === undefined) {
+    return [];
+  }
 
-	const unanswered = yield* Effect.filter(asking, (message) =>
-		Effect.map(
-			discord.hasReplyFrom(message.threadId, ME),
-			(replied) => !replied,
-		),
-	);
+  const asking = messages.filter(looksLikeAQuestion);
 
-	const posts = yield* Corpus.use((corpus) => corpus.all());
+  const unanswered = yield* Effect.filter(asking, (message) =>
+    Effect.map(
+      discord.hasReplyFrom(message.threadId, ME),
+      (replied) => !replied
+    )
+  );
 
-	const judged = yield* Effect.forEach(
-		unanswered,
-		(message) =>
-			Judge.use((judge) => judge.answerable(message.content, posts)).pipe(
-				Effect.map((verdict) => ({ message, verdict })),
-			),
-		{ concurrency: 4 },
-	);
+  const posts = yield* Corpus.use((corpus) => corpus.all());
 
-	const rows = judged
-		.filter(({ verdict }) => verdict.answerable)
-		.map(({ message }) => toRow(message));
+  const judged = yield* Effect.forEach(
+    unanswered,
+    (message) =>
+      Judge.use((judge) => judge.answerable(message.content, posts)).pipe(
+        Effect.map((verdict) => ({ message, verdict }))
+      ),
+    { concurrency: 4 }
+  );
 
-	// Save BEFORE advancing. The cursor is a promise that these messages are
-	// already accounted for — advancing first would drop them permanently on a
-	// mid-run failure, and they can never be re-read.
-	yield* QuestionStore.use((store) => store.save(rows));
-	yield* Cursors.use((cursors) => cursors.set(channelId, newest.id));
+  const rows = judged
+    .filter(({ verdict }) => verdict.answerable)
+    .map(({ message }) => toRow(message));
+
+  // Save BEFORE advancing. The cursor is a promise that these messages are
+  // already accounted for — advancing first would drop them permanently on a
+  // mid-run failure, and they can never be re-read.
+  yield* QuestionStore.use((store) => store.save(rows));
+  yield* Cursors.use((cursors) => cursors.set(channelId, newest.id));
 });
 
 /**
@@ -69,19 +73,19 @@ const harvestChannel = Effect.fn("harvestChannel")(function* (
  * the store, which is the only thing the read side ever touches.
  */
 export const harvestQuestions = Effect.fn("harvestQuestions")(function* () {
-	yield* Effect.forEach(
-		CHANNELS,
-		(channelId) =>
-			harvestChannel(channelId).pipe(
-				// Still swallowed — one bad channel must not kill the others — but a
-				// dead token is a 401 on every channel, and silence reads as "no
-				// questions today". The log is the difference between the two.
-				Effect.catchCause((cause) =>
-					Effect.logError(`harvest failed for ${channelId}`, cause),
-				),
-			),
-		{ concurrency: 3, discard: true },
-	);
+  yield* Effect.forEach(
+    CHANNELS,
+    (channelId) =>
+      harvestChannel(channelId).pipe(
+        // Still swallowed — one bad channel must not kill the others — but a
+        // dead token is a 401 on every channel, and silence reads as "no
+        // questions today". The log is the difference between the two.
+        Effect.catchCause((cause) =>
+          Effect.logError(`harvest failed for ${channelId}`, cause)
+        )
+      ),
+    { concurrency: 3, discard: true }
+  );
 });
 
 /**
@@ -92,10 +96,10 @@ export const harvestQuestions = Effect.fn("harvestQuestions")(function* () {
  * `listOpen` read below is already the final shape.
  */
 export const listQuestions = createServerFn({ method: "GET" }).handler(
-	(): Promise<QuestionsRow[]> =>
-		runtime.runPromise(
-			harvestQuestions().pipe(
-				Effect.andThen(QuestionStore.use((store) => store.listOpen())),
-			),
-		),
+  (): Promise<QuestionsRow[]> =>
+    runtime.runPromise(
+      harvestQuestions().pipe(
+        Effect.andThen(QuestionStore.use((store) => store.listOpen()))
+      )
+    )
 );

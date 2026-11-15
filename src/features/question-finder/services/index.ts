@@ -1,4 +1,5 @@
 import { Layer } from "effect";
+
 import { Corpus } from "./corpus";
 import { Cursors } from "./cursors";
 import { Discord } from "./discord";
@@ -14,17 +15,21 @@ import { QuestionStore } from "./question-store";
  */
 
 export * from "./corpus";
+
 export * from "./cursors";
+
 export * from "./discord";
+
 export * from "./judge";
+
 export * from "./question-store";
 
 export const stubLayer = Layer.mergeAll(
-	Discord.stub,
-	Cursors.stub,
-	Corpus.stub,
-	Judge.stub,
-	QuestionStore.stub,
+  Discord.stub,
+  Cursors.stub,
+  Corpus.stub,
+  Judge.stub,
+  QuestionStore.stub
 );
 
 // The live wiring lives in ../runtime.ts, not here. This file is reachable from

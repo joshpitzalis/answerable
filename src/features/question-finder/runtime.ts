@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { Layer, ManagedRuntime } from "effect";
+
 import { Corpus, Cursors, Discord, Judge, QuestionStore } from "./services";
 
 /**
@@ -16,13 +17,13 @@ import { Corpus, Cursors, Discord, Judge, QuestionStore } from "./services";
  * ponytail: the other four stay stubs. Promote them one at a time.
  */
 const appLayer = Layer.mergeAll(
-	Layer.suspend(() =>
-		env.DISCORD_BOT_TOKEN ? Discord.layer(env.DISCORD_BOT_TOKEN) : Discord.stub,
-	),
-	Cursors.stub,
-	Corpus.stub,
-	Judge.stub,
-	QuestionStore.stub,
+  Layer.suspend(() =>
+    env.DISCORD_BOT_TOKEN ? Discord.layer(env.DISCORD_BOT_TOKEN) : Discord.stub
+  ),
+  Cursors.stub,
+  Corpus.stub,
+  Judge.stub,
+  QuestionStore.stub
 );
 
 /** One runtime per Worker isolate. Built on first use, not at import. */

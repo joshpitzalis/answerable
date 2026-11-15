@@ -2,6 +2,36 @@
 
 Project-specific guidance for AI coding agents.
 
+## Coding standards
+
+Read [CODING_STANDARDS.md](CODING_STANDARDS.md) before adding, moving, testing or reviewing code: feature layout under `src/features/`, where each kind of code goes, file growth, tests, clickable surfaces and comments.
+
+## Lint and format: Ultracite (oxlint + oxfmt)
+
+- `pnpm fix` formats and autofixes; `pnpm check` verifies.
+- Review every autofix diff. Autofixes can change behaviour: one put `new` before `Schema.TaggedError<X>()(...)`.
+- Rule overrides live in `oxlint.config.ts`, each with its reason. A rule that fights an Effect idiom or CODING_STANDARDS.md gets an override there; a one-off exception gets `// oxlint-disable-next-line <rule> -- <reason>`.
+- `tools/oxlint/anti-slop/` is vendored from [dmmulroy/anti-slop](https://github.com/dmmulroy/anti-slop) (generic and Effect rules) and is ours to edit; record changes in its `UPSTREAM.md`. Keep `@oxlint/plugins` pinned to the exact `oxlint` version.
+- Fix anti-slop findings in the code: parse at the boundary, use `Match`, use tagged constructors. Casts and suppressions are not fixes.
+
+## Tests and verify
+
+- Run the `verify` skill before every `git push`: `pnpm verify` chains `pnpm check`, `pnpm types`, `pnpm test` and `pnpm e2e`, and must exit 0.
+- `pnpm test` is Vitest over `src/**/__tests__/*.test.ts(x)`. `pnpm e2e` is Playwright over `e2e/*.spec.ts`, served by `alchemy dev` with `e2e/e2e.env`, which leaves the Discord token unset so pages show fixture data.
+- After writing or changing tests, run Stryker on the files under test: `pnpm mutate --mutate "src/path/file.ts"`. Kill every surviving mutant with a test, or say why it is equivalent. A full `pnpm mutate` takes about 9 minutes; the report lands in `reports/mutation/index.html`.
+- Fake at a seam the code already has: a service contract (`Layer.succeed(Discord, Discord.of({...}))`) or an injected function (`listMessages(path, token, fetch)`). Module mocking is lint-banned.
+- Vitest aliases `cloudflare:workers` to an empty `env` (`src/shared/testing/cloudflareWorkers.ts`), so code that reads bindings gets stub services.
+
+## Cloudflare via Alchemy
+
+- `alchemy.run.ts` is the single source of infrastructure: the Worker, its bindings and its secrets. There is no `wrangler.jsonc`.
+- `pnpm dev` runs `alchemy dev` against real Cloudflare resources. `pnpm exec alchemy plan` previews. Ask the user before `pnpm deploy` or `pnpm destroy`.
+- Builds go through Alchemy, which injects the Cloudflare Vite plugin; bare `vite build` fails on `cloudflare:workers`, and `@cloudflare/vite-plugin` in `vite.config.ts` conflicts.
+- New binding: declare it under `env` in `alchemy.run.ts`. `src/env.d.ts` types `import { env } from "cloudflare:workers"` from that declaration.
+- Read `env` inside a handler or a lazily built layer, from server-only modules. At module scope it throws on the Worker; in the client bundle it does not resolve.
+- Secrets: `Config.Redacted("NAME")` in `alchemy.run.ts`, value in the gitignored `.env`.
+- Alchemy is a v2 beta built on Effect and its API moves: look it up at https://alchemy.run/llms.txt. For Workers platform limits and APIs, use https://developers.cloudflare.com/workers/.
+
 <!-- ASTRYX:START -->
 Astryx v0.4.2 · 156 components
 CLI: run every command as `pnpm exec astryx <cmd>` (shown below as `astryx ...`).
