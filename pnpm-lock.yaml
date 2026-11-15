@@ -17,9 +17,6 @@ importers:
       '@astryxdesign/theme-neutral':
         specifier: ^0.4.2
         version: 0.4.2(@astryxdesign/core@0.4.2(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
-      '@effect/atom-react':
-        specifier: 4.1.4
-        version: 4.1.4(effect@4.1.4)(react@19.2.8)(scheduler@0.27.0)
       '@effect/platform-node':
         specifier: ^4.1.4
         version: 4.1.4(effect@4.1.4)(redis@6.3.1)
@@ -44,6 +41,9 @@ importers:
       '@tanstack/react-start':
         specifier: latest
         version: 1.169.5(esbuild@0.28.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(rolldown@1.2.16)(supports-color@10.2.2)(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.1))
+      '@xstate/react':
+        specifier: 7.0.0-beta.0
+        version: 7.0.0-beta.0(@types/react@19.2.18)(react@19.2.8)(xstate@6.0.0-beta.3)
       alchemy:
         specifier: 2.0.0-beta.87
         version: 2.0.0-beta.87(@effect/platform-node@4.1.4(effect@4.1.4)(redis@6.3.1))(@types/react@19.2.18)(effect@4.1.4)(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.1))(ws@8.23.0)
@@ -62,6 +62,9 @@ importers:
       tailwindcss:
         specifier: ^4.1.18
         version: 4.3.3
+      xstate:
+        specifier: 6.0.0-beta.3
+        version: 6.0.0-beta.3
     devDependencies:
       '@astryxdesign/cli':
         specifier: ^0.4.2
@@ -721,13 +724,6 @@ packages:
     resolution: {integrity: sha512-MqJlG+CVCgkIX7iPDo8hb4YlcEELYTlJFLg2Whp8TjBPieViNiiRAJR/5TtDApa38dzrTsMc69ul965Myagrdg==}
     peerDependencies:
       effect: ^4.1.2
-
-  '@effect/atom-react@4.1.4':
-    resolution: {integrity: sha512-Xj58DcAzKsysHhzBCPaz2v1QAJq6NvMdGVmG7SV4zkw1RMiTZv8gaOXA1VqIRlpmvdspMwRe/BQ4eayuzRZTpQ==}
-    peerDependencies:
-      effect: ^4.1.4
-      react: '>=19.0.0 <20.0.0'
-      scheduler: '>=0.25.0 <0.29.0'
 
   '@effect/platform-node-shared@4.1.4':
     resolution: {integrity: sha512-DWdfphHGOFJNj/mYadgpT3jIm8aRXDcPrQiGXFBH4p2H4XmA7iYMrPsI8NxVgZ7kNX0q1+FGJZJama0tINHRAg==}
@@ -2394,6 +2390,12 @@ packages:
   '@vitest/spy@5.1.0':
     resolution: {integrity: sha512-2DPO5OMHWKrBngC+fCmTQqemNF0gidRhp3lxbBmRhW+M1XJrfgPpqNqWVevXtn2f2ufD5ZaR1B6B641aAlcX5A==}
 
+  '@xstate/react@7.0.0-beta.0':
+    resolution: {integrity: sha512-jnJv+FvFm3bRQ4+BGQOpyd2M+JgnN2DfMJSrhErJd5xEp6jJcAwcMO3dA8aL9jAb7iQD0Lij1RPrjpyqdiNnhw==}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+      xstate: ^6.0.0-beta.0
+
   acorn@8.19.0:
     resolution: {integrity: sha512-oJlA3XiRm7Cyk6qFD2Jn8ak9B7jSy0qy00ADO3+8dpT0LSjFihQYv4C02LFCSYJV3Q37xYwwRy5m+IpIiUzqWw==}
     engines: {node: '>=0.4.0'}
@@ -3842,6 +3844,15 @@ packages:
     peerDependencies:
       browserslist: '>= 4.21.0'
 
+  use-isomorphic-layout-effect@1.2.1:
+    resolution: {integrity: sha512-tpZZ+EX0gaghDAiFR37hj5MgY6ZN55kLiPkJsKxBMZ6GZdOSPJXiOzPM984oPYZ5AnehYx5WQp1+ME8I/P/pRA==}
+    peerDependencies:
+      '@types/react': '*'
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+
   use-sync-external-store@1.6.0:
     resolution: {integrity: sha512-Pp6GSwGP/NrPIrxVFAIkOQeyw8lFenOHijQWkUTrDvrF4ALqylP2C/KCkeS9dpUM3KvYRQhna5vt7IL95+ZQ9w==}
     peerDependencies:
@@ -4026,6 +4037,10 @@ packages:
 
   xmlchars@2.2.0:
     resolution: {integrity: sha512-JZnDKK8B0RCDw84FNdDAIpZK+JuJw+s7Lz8nksI7SIuU3UXJJslUthsi+uWBUYOwPFwW7W7PRLRfUKpxjtjFCw==}
+
+  xstate@6.0.0-beta.3:
+    resolution: {integrity: sha512-b6C6SQ9cern6sD531uHcwOH94lBL+701Jd/VRSkzT8oAV1AKTT9oXFZtvC5DajUU4+8gmTLBTMHjZjd0VrsmAg==}
+    hasBin: true
 
   y18n@5.0.8:
     resolution: {integrity: sha512-0pfFzegeDWJHJIAmTLRP2DwHjdF5s7jo9tuztdQxAhINCdvS+3nGINqPd00AphqJR/0LhANUS6/+7SCb98YOfA==}
@@ -4742,12 +4757,6 @@ snapshots:
       '@distilled.cloud/aws4signer': 1.0.0-rc.20(effect@4.1.4)
       '@distilled.cloud/core': 1.0.0-rc.20(effect@4.1.4)
       effect: 4.1.4
-
-  '@effect/atom-react@4.1.4(effect@4.1.4)(react@19.2.8)(scheduler@0.27.0)':
-    dependencies:
-      effect: 4.1.4
-      react: 19.2.8
-      scheduler: 0.27.0
 
   '@effect/platform-node-shared@4.1.4(effect@4.1.4)':
     dependencies:
@@ -6095,6 +6104,15 @@ snapshots:
       vite: 8.2.1(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.1)
 
   '@vitest/spy@5.1.0': {}
+
+  '@xstate/react@7.0.0-beta.0(@types/react@19.2.18)(react@19.2.8)(xstate@6.0.0-beta.3)':
+    dependencies:
+      react: 19.2.8
+      use-isomorphic-layout-effect: 1.2.1(@types/react@19.2.18)(react@19.2.8)
+      use-sync-external-store: 1.6.0(react@19.2.8)
+      xstate: 6.0.0-beta.3
+    transitivePeerDependencies:
+      - '@types/react'
 
   acorn@8.19.0: {}
 
@@ -7456,6 +7474,12 @@ snapshots:
       escalade: 3.2.0
       picocolors: 1.1.1
 
+  use-isomorphic-layout-effect@1.2.1(@types/react@19.2.18)(react@19.2.8):
+    dependencies:
+      react: 19.2.8
+    optionalDependencies:
+      '@types/react': 19.2.18
+
   use-sync-external-store@1.6.0(react@19.2.8):
     dependencies:
       react: 19.2.8
@@ -7574,6 +7598,8 @@ snapshots:
       js-yaml: 4.3.1
 
   xmlchars@2.2.0: {}
+
+  xstate@6.0.0-beta.3: {}
 
   y18n@5.0.8: {}
 
