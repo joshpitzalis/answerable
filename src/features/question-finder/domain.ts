@@ -48,6 +48,8 @@ export const QuestionsRow = Schema.Struct({
   question: Schema.String,
   /** The question starts with a forum post's title, which the table shows as a title. */
   isPost: Schema.Boolean,
+  /** The asker's Discord avatar image, when they have one. */
+  avatarUrl: Schema.NullOr(Schema.String),
   dateAsked: Schema.Date,
   url: Schema.String,
 });
@@ -138,6 +140,7 @@ export const toRow = (
   comments: message.replyCount,
   question: message.content,
   isPost: message.isPost,
+  avatarUrl: message.authorAvatarUrl,
   dateAsked: message.createdAt,
   url: message.url,
 });

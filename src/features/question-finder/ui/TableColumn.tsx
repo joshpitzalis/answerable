@@ -16,7 +16,7 @@ export const columns: TableColumn<QuestionsTableRow>[] = [
     width: proportional(2),
     renderCell: (item: QuestionsTableRow) => (
       <HStack gap={3} vAlign="center">
-        <Avatar name={item.name} size="md" />
+        <Avatar name={item.name} src={item.avatarUrl ?? undefined} size="md" />
         <VStack gap={0}>
           <Text type="body">{item.name}</Text>
           <Text type="supporting" color="secondary">

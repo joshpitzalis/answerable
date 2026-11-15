@@ -10,6 +10,7 @@ const row = (id: string, project: string, question = "q"): QuestionsRow => ({
   dateAsked: new Date("2026-08-01T00:00:00Z"),
   id,
   isPost: false,
+  avatarUrl: null,
   name: "ada",
   project,
   question,

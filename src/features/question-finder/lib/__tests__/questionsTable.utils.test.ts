@@ -45,6 +45,7 @@ const row = (id: string, channelName: string): QuestionsRow => ({
   comments: 0,
   question: "How?",
   isPost: false,
+  avatarUrl: null,
   dateAsked: new Date("2026-01-01T00:00:00Z"),
   url: "https://discord.com/x",
 });

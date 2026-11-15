@@ -12,6 +12,7 @@ const row: QuestionsRow = {
   comments: 2,
   question: "How do I retry an Effect?",
   isPost: false,
+  avatarUrl: null,
   dateAsked: new Date("2026-01-01T00:00:00Z"),
   url: "https://discord.com/channels/1/2/3",
 };

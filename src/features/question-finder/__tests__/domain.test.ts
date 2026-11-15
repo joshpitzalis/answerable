@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { Contributor } from "../domain";
-import { contributorStats } from "../domain";
+import type { Contributor, DiscordMessage, Project } from "../domain";
+import { contributorStats, toRow } from "../domain";
 
 const contributor = (
   name: string,
@@ -116,5 +116,43 @@ describe(contributorStats, () => {
         "Bo",
       ]);
     });
+  });
+});
+
+describe(toRow, () => {
+  const message: DiscordMessage = {
+    authorAvatarUrl: "https://cdn.discordapp.com/avatars/u1/h1.png?size=64",
+    authorIsBot: false,
+    authorName: "ada",
+    content: "How do actors stop?",
+    createdAt: new Date("2026-08-01T00:00:00Z"),
+    id: "100",
+    isPost: false,
+    replyCount: 2,
+    threadId: "100",
+    url: "https://discord.com/channels/s1/c1/100",
+  };
+
+  const project: Project = {
+    channels: [{ id: "c1", name: "help" }],
+    label: "XState",
+    ownerName: "grace",
+    serverId: "s1",
+    slug: "xstate",
+  };
+
+  it("carries the asker's avatar onto the row", () => {
+    expect(toRow(message, project, { id: "c1", name: "help" }).avatarUrl).toBe(
+      "https://cdn.discordapp.com/avatars/u1/h1.png?size=64"
+    );
+  });
+
+  it("leaves the row without an avatar when the asker has none", () => {
+    expect(
+      toRow({ ...message, authorAvatarUrl: null }, project, {
+        id: "c1",
+        name: "help",
+      }).avatarUrl
+    ).toBeNull();
   });
 });

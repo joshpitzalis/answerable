@@ -12,6 +12,7 @@ const row = (overrides: Partial<QuestionsTableRow>): QuestionsTableRow => ({
   dateAsked: new Date("2026-08-01T00:00:00Z"),
   id: "100",
   isPost: false,
+  avatarUrl: null,
   name: "ada",
   project: "xstate",
   question: "How do actors stop?",
@@ -25,12 +26,18 @@ const questionCell = (item: QuestionsTableRow): ReactNode => {
   return column?.renderCell?.(item);
 };
 
+const nameCell = (item: QuestionsTableRow): ReactNode => {
+  const column = columns.find((candidate) => candidate.key === "name");
+
+  return column?.renderCell?.(item);
+};
+
 const LONG_QUESTION = Array.from(
   { length: 12 },
   (_, index) => `Line ${index} of a long question about actors`
 ).join("\n\n");
 
-describe("the question cell", () => {
+describe("the table cells", () => {
   // jsdom has no matchMedia, which Astryx's theme hook reads.
   beforeAll(() => {
     window.matchMedia = (query: string) =>
@@ -138,5 +145,26 @@ describe("the question cell", () => {
         .querySelector(".astryx-markdown")
         ?.classList.contains("max-h-40")
     ).toBeFalsy();
+  });
+
+  it("shows the asker's Discord avatar image beside their name", () => {
+    const { container } = render(
+      nameCell(
+        row({
+          avatarUrl: "https://cdn.discordapp.com/avatars/u1/h1.png?size=64",
+        })
+      )
+    );
+
+    expect(container.querySelector("img")?.getAttribute("src")).toBe(
+      "https://cdn.discordapp.com/avatars/u1/h1.png?size=64"
+    );
+  });
+
+  it("shows no image for an asker without an avatar", () => {
+    const { container } = render(nameCell(row({ avatarUrl: null })));
+
+    expect(container.querySelector("img")).toBeNull();
+    expect(screen.getAllByText("ada").length).toBeGreaterThan(0);
   });
 });
