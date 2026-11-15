@@ -1,4 +1,3 @@
-import { EFFECT_PROJECT } from "@/features/question-finder/lib/projects.config";
 import FIXTURE from "@/features/question-finder/services/_fixtures/messages.json" with { type: "json" };
 import { ANSWERED_THREADS } from "@/features/question-finder/services/discord/lib/constants";
 
@@ -32,15 +31,18 @@ export const fixtureFetch: typeof globalThis.fetch = (input) => {
   );
 };
 
-const replies = (threadId: string) =>
-  ANSWERED_THREADS.has(threadId)
-    ? [
+const replies = (threadId: string) => {
+  const owner = ANSWERED_THREADS.get(threadId);
+
+  return owner === undefined
+    ? []
+    : [
         {
           id: `${threadId}-reply`,
           content: "Covered in an earlier post.",
           timestamp: "2026-08-10T00:00:00.000+00:00",
           channel_id: threadId,
-          author: { username: EFFECT_PROJECT.ownerName, global_name: null },
+          author: { username: owner, global_name: null },
         },
-      ]
-    : [];
+      ];
+};

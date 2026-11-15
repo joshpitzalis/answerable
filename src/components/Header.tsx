@@ -1,13 +1,8 @@
 import { TopNav, TopNavHeading, TopNavItem } from "@astryxdesign/core/TopNav";
-import { Link, useRouterState } from "@tanstack/react-router";
+import { useRouterState } from "@tanstack/react-router";
 
+import { RouterLink } from "./RouterLink";
 import ThemeToggle from "./ThemeToggle";
-
-// ponytail: href -> to adapter so Astryx nav items client-side navigate.
-// Astryx passes href/className/style/children; TanStack Link wants `to`.
-const RouterLink = ({ href, ...rest }: { href?: string }) => (
-  <Link to={href ?? "/"} {...rest} />
-);
 
 export default function Header() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -25,7 +20,7 @@ export default function Header() {
             label="Home"
             href="/"
             as={RouterLink}
-            isSelected={pathname === "/"}
+            isSelected={pathname !== "/search"}
           />
           <TopNavItem
             label="Search"
