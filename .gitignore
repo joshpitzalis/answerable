@@ -22,3 +22,6 @@ test-results
 playwright-report
 .stryker-tmp
 reports
+
+# Per-machine session cache with absolute paths.
+.impeccable/hook.cache.json
