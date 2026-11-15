@@ -87,7 +87,8 @@ test("the Effect tab shows its single Channel in the Channel column", async ({
   ).toBeVisible();
   await expect(
     page
-      .getByRole("row", { name: CLOWNFISH })
+      .getByRole("row")
+      .filter({ hasText: CLOWNFISH })
       .getByText("effect-help", { exact: true })
   ).toBeVisible();
 });
@@ -97,8 +98,11 @@ test("the XState table shows each question's Channel and filters the Channels ap
 }) => {
   await page.goto("/xstate");
 
-  const stopActors = page.getByRole("row", { name: XSTATE_STOP_ACTORS });
-  const guards = page.getByRole("row", { name: XSTATE_GUARDS });
+  const stopActors = page
+    .getByRole("row")
+    .filter({ hasText: XSTATE_STOP_ACTORS });
+
+  const guards = page.getByRole("row").filter({ hasText: XSTATE_GUARDS });
 
   await expect(
     stopActors.getByText("xstate-help", { exact: true })
