@@ -3,7 +3,7 @@ import { Effect, Option, Schema } from "effect";
 import {
   DiscordFailed,
   DiscordRateLimited,
-} from "@/features/question-finder/services/discord/lib/errors";
+} from "#/features/question-finder/services/discord/lib/errors";
 
 import { API } from "../lib/constants";
 import { decodeMessages } from "../schema";

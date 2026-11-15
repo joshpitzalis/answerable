@@ -14,7 +14,6 @@ import { Discord } from "../services/discord";
 import { Judge } from "../services/judge";
 import { QuestionStore } from "../services/question-store";
 
-/** Everything the Harvest steps ask of the runtime. */
 export type HarvestServices =
   | Discord
   | Cursors

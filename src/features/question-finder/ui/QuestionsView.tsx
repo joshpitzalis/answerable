@@ -7,31 +7,10 @@ import { useMemo } from "react";
 import { TableComponent } from "#/components/Table.tsx";
 import type { QuestionsRow } from "#/features/question-finder/domain";
 
+import { toFieldDefs, toTableRows } from "../lib/questionsTable.utils";
 import { FailedChannelsBanner } from "./FailedChannelsBanner";
 import type { createQuestionsMachine } from "./questionsMachine";
-import type { QuestionsTableRow } from "./TableColumn";
 import { columns } from "./TableColumn";
-
-const toTableRows = (questions: QuestionsRow[]): QuestionsTableRow[] =>
-  questions.map((question) => ({
-    ...question,
-    channel: question.channel.name,
-  }));
-
-const toFieldDefs = (rows: QuestionsTableRow[]) =>
-  [
-    { key: "name", type: "string", label: "Name" },
-    { key: "comments", type: "number", label: "Comment" },
-    { key: "question", type: "string", label: "Question" },
-    {
-      key: "channel",
-      type: "enum",
-      label: "Channel",
-      enumValues: [...new Set(rows.map((row) => row.channel))].map(
-        (channel) => ({ value: channel, label: channel })
-      ),
-    },
-  ] as const;
 
 const QuestionsTable = ({
   questions,

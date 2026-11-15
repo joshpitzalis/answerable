@@ -1,6 +1,6 @@
 import { Context, Effect, Layer, Option } from "effect";
 
-import type { Snowflake } from "@/features/question-finder/domain";
+import type { Snowflake } from "#/features/question-finder/domain";
 
 export class Cursors extends Context.Service<
   Cursors,

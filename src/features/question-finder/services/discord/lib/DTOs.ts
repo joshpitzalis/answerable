@@ -1,5 +1,5 @@
-import type { DiscordMessage } from "@/features/question-finder/domain";
-import type { RawMessage } from "@/features/question-finder/services/discord/schema";
+import type { DiscordMessage } from "#/features/question-finder/domain";
+import type { RawMessage } from "#/features/question-finder/services/discord/schema";
 
 export const authorNameOf = (raw: RawMessage): string =>
   raw.author.global_name ?? raw.author.username;

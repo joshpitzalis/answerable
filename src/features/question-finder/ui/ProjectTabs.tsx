@@ -4,12 +4,11 @@ import { RouterLink } from "#/components/RouterLink.tsx";
 
 import type { Project } from "../domain";
 
-// The tabs are links: the router navigates, so the selection follows the URL.
-const noop = () => {
-  // Navigation is the link's job.
+const ignoreChange = () => {
+  // TabList requires onChange, but each Tab is a link: the router navigates and
+  // the selection follows the URL.
 };
 
-/** One tab per Project, each a link to that Project's route. */
 export const ProjectTabs = ({
   projects,
   currentSlug,
@@ -17,7 +16,7 @@ export const ProjectTabs = ({
   projects: readonly Project[];
   currentSlug: string;
 }) => (
-  <TabList value={currentSlug} onChange={noop} hasDivider>
+  <TabList value={currentSlug} onChange={ignoreChange} hasDivider>
     {projects.map((project) => (
       <Tab
         key={project.slug}

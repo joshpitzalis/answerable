@@ -1,16 +1,13 @@
 import { Avatar } from "@astryxdesign/core/Avatar";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
+import { Link } from "@astryxdesign/core/Link";
 import type { TableColumn } from "@astryxdesign/core/Table";
 import { pixel, proportional } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 
-import type { QuestionsRow } from "#/features/question-finder/domain";
 import { humanizeDate } from "#/lib/utils/format-date.ts";
 
-/** A row as the table shows it: the Channel flattened to its name, so it can be filtered. */
-export type QuestionsTableRow = Omit<QuestionsRow, "channel"> & {
-  channel: string;
-};
+import type { QuestionsTableRow } from "../lib/questionsTable.utils";
 
 export const columns: TableColumn<QuestionsTableRow>[] = [
   {
@@ -34,11 +31,11 @@ export const columns: TableColumn<QuestionsTableRow>[] = [
     header: "Question",
     width: proportional(5),
     renderCell: (item: QuestionsTableRow) => (
-      // ponytail: plain anchor. Row-level click needs a Table onRowClick prop
-      // that doesn't exist yet — add it the day the whole row must be a link.
-      <a href={item.url} target="_blank" rel="noreferrer">
-        <Text type="body">{item.question}</Text>
-      </a>
+      // ponytail: link, not a row click. Row-level click needs a Table onRowClick
+      // prop that doesn't exist yet — add it the day the whole row must be a link.
+      <Link href={item.url} target="_blank" rel="noreferrer">
+        {item.question}
+      </Link>
     ),
   },
   {

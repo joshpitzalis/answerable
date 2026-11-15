@@ -25,14 +25,17 @@ import {
   saveThenAdvance,
 } from "./harvestSteps";
 
-interface Rejection {
+interface StepErrorEvent {
   readonly error: unknown;
 }
 
-const reasonOf = ({ error }: Rejection): string =>
+const reasonOf = ({ error }: StepErrorEvent): string =>
   Match.value(error).pipe(
-    Match.when(Match.instanceOf(DiscordFailed), (failure) => failure.reason),
-    Match.when(Match.instanceOf(JudgeFailed), (failure) => failure.reason),
+    Match.whenOr(
+      Match.instanceOf(DiscordFailed),
+      Match.instanceOf(JudgeFailed),
+      (failure) => failure.reason
+    ),
     Match.when(Match.instanceOf(Error), (failure) => failure.message),
     Match.orElse(String)
   );
@@ -73,30 +76,37 @@ export const createChannelHarvestMachine = (
    */
   const failedIn =
     (step: Step) =>
-    ({ context, event }: { context: ChannelContext; event: Rejection }) => {
-      if (!(event.error instanceof DiscordRateLimited)) {
-        return {
-          target: "failed" as const,
-          context: { failedStep: step, reason: reasonOf(event) },
-        };
-      }
+    ({
+      context,
+      event,
+    }: {
+      context: ChannelContext;
+      event: StepErrorEvent;
+    }) => {
+      const { error } = event;
 
-      if (context.retries >= MAX_RETRIES) {
+      if (
+        error instanceof DiscordRateLimited &&
+        context.retries < MAX_RETRIES
+      ) {
         return {
-          target: "failed" as const,
+          target: "waiting" as const,
           context: {
             failedStep: step,
-            reason: `Rate-limited by Discord: still limited after ${MAX_RETRIES} retries`,
+            retries: context.retries + 1,
+            waitMs: error.retryAfterMs,
           },
         };
       }
 
       return {
-        target: "waiting" as const,
+        target: "failed" as const,
         context: {
           failedStep: step,
-          retries: context.retries + 1,
-          waitMs: event.error.retryAfterMs,
+          reason:
+            error instanceof DiscordRateLimited
+              ? `Rate-limited by Discord: still limited after ${MAX_RETRIES} retries`
+              : reasonOf(event),
         },
       };
     };
