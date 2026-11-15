@@ -15,7 +15,6 @@ export const createProjectHarvestMachine = (
   const channelHarvest = createChannelHarvestMachine(runtime);
 
   return setup({
-    actors: { channelHarvest },
     schemas: {
       input: types<Project>(),
       context: types<{
@@ -54,8 +53,8 @@ export const createProjectHarvestMachine = (
           "channel.finished": ({ context, event }) => {
             const pending = context.pending - 1;
 
+            // The last child leaves `pending` at 0 and the `always` above finishes.
             return {
-              target: pending === 0 ? "finished" : undefined,
               context: {
                 pending,
                 failed:
