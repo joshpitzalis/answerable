@@ -1,5 +1,5 @@
-import FIXTURE from "@/features/question-finder/services/_fixtures/messages.json" with { type: "json" };
-import { ANSWERED_THREADS } from "@/features/question-finder/services/discord/lib/constants";
+import FIXTURE from "#/features/question-finder/services/_fixtures/messages.json" with { type: "json" };
+import { ANSWERED_THREADS } from "#/features/question-finder/services/discord/lib/constants";
 
 /**
  * ponytail: just enough of Discord's list-messages contract for the pipeline to

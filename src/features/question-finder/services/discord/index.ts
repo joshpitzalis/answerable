@@ -3,15 +3,15 @@ import { Context, Effect, Layer, Option } from "effect";
 import type {
   DiscordMessage,
   Snowflake,
-} from "@/features/question-finder/domain";
+} from "#/features/question-finder/domain";
 import {
   authorNameOf,
   toMessage,
-} from "@/features/question-finder/services/discord/lib/DTOs";
+} from "#/features/question-finder/services/discord/lib/DTOs";
 import type {
   DiscordFailed,
   DiscordRateLimited,
-} from "@/features/question-finder/services/discord/lib/errors";
+} from "#/features/question-finder/services/discord/lib/errors";
 
 import { fixtureFetch, listMessages } from "./handlers";
 
@@ -31,7 +31,7 @@ const make = (fetch: typeof globalThis.fetch, token: string) => ({
       // last message it sees is the new cursor.
     ).pipe(
       Effect.map((raw) =>
-        raw.map((one) => toMessage(one, serverId)).toReversed()
+        raw.map((message) => toMessage(message, serverId)).toReversed()
       )
     ),
 

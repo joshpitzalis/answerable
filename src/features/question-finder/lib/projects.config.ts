@@ -1,5 +1,3 @@
-import { Option } from "effect";
-
 import type { Project } from "../domain";
 
 export const EFFECT_PROJECT: Project = {
@@ -28,11 +26,12 @@ export const XSTATE_PROJECT: Project = {
   ownerName: "xstate-placeholder-owner",
 };
 
-/** In tab order: the first is where the root URL lands. */
+/** In display order: the first is where the root URL lands. */
 export const PROJECTS: readonly [Project, ...Project[]] = [
   EFFECT_PROJECT,
   XSTATE_PROJECT,
 ];
 
-export const findProject = (slug: string): Option.Option<Project> =>
-  Option.fromNullishOr(PROJECTS.find((project) => project.slug === slug));
+// Plain value, not Option: the routes import this and no Effect code runs in the browser.
+export const findProject = (slug: string): Project | undefined =>
+  PROJECTS.find((project) => project.slug === slug);

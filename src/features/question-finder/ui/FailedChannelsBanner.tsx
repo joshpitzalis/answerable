@@ -1,4 +1,5 @@
 import { Banner } from "@astryxdesign/core/Banner";
+import { HStack, VStack } from "@astryxdesign/core/Layout";
 import { Text } from "@astryxdesign/core/Text";
 
 import type { FailedChannel } from "../domain";
@@ -18,15 +19,14 @@ export const FailedChannelsBanner = ({
       status="warning"
       title="Some Channels could not be read"
       description={
-        <ul>
+        <VStack gap={1}>
           {failedChannels.map(({ name, reason }) => (
-            <li key={name}>
-              <Text type="body">
-                <strong>#{name}</strong> {reason}
-              </Text>
-            </li>
+            <HStack key={name} gap={2}>
+              <Text type="label">#{name}</Text>
+              <Text type="body">{reason}</Text>
+            </HStack>
           ))}
-        </ul>
+        </VStack>
       }
     />
   );
