@@ -1,7 +1,6 @@
 import { AppShell } from "@astryxdesign/core/AppShell";
 import { Theme } from "@astryxdesign/core/theme";
 import { neutralTheme } from "@astryxdesign/theme-neutral/built";
-import { RegistryProvider } from "@effect/atom-react";
 import { TanStackDevtools } from "@tanstack/react-devtools";
 import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
@@ -21,14 +20,12 @@ const RootDocument = ({ children }: { children: React.ReactNode }) => (
       <HeadContent />
     </head>
     <body className="font-sans [overflow-wrap:anywhere] antialiased selection:bg-[rgba(79,184,178,0.24)]">
-      <RegistryProvider>
-        <Theme theme={neutralTheme}>
-          <AppShell topNav={<Header />} height="auto" contentPadding={4}>
-            {children}
-          </AppShell>
-          <Footer />
-        </Theme>
-      </RegistryProvider>
+      <Theme theme={neutralTheme}>
+        <AppShell topNav={<Header />} height="auto" contentPadding={4}>
+          {children}
+        </AppShell>
+        <Footer />
+      </Theme>
       <TanStackDevtools
         config={{
           position: "bottom-right",
