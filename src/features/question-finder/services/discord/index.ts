@@ -152,6 +152,23 @@ export class Discord extends Context.Service<
     fetch: typeof globalThis.fetch = (...args) => globalThis.fetch(...args)
   ) => Layer.sync(Discord, () => Discord.of(make(fetch, token)));
 
+  /**
+   * The live client with the already-replied check switched off: nobody ever
+   * counts as having replied, and no request is made for it. The owner wants
+   * one fewer Discord call per question until the rate limits are understood;
+   * wire `layer` again to bring the check back.
+   */
+  static readonly layerSkippingReplyCheck = (
+    token: string,
+    fetch: typeof globalThis.fetch = (...args) => globalThis.fetch(...args)
+  ) =>
+    Layer.sync(Discord, () =>
+      Discord.of({
+        ...make(fetch, token),
+        hasReplyFrom: () => Effect.succeed(false),
+      })
+    );
+
   /** Same code — request building, decoding, mapping. Only the wire is faked. */
   static readonly stub = Layer.sync(Discord, () =>
     Discord.of(make(fixtureFetch, "stub-token"))

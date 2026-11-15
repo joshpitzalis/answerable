@@ -77,7 +77,7 @@ const runtimeOver = (
 const liveRuntimeOver = (fetch: typeof globalThis.fetch) =>
   ManagedRuntime.make(
     Layer.mergeAll(
-      Discord.layer("token", fetch),
+      Discord.layerSkippingReplyCheck("token", fetch),
       Cursors.stub,
       corpus,
       Judge.everythingAnswerable,
@@ -794,6 +794,30 @@ describe(harvestQuestions, () => {
     const runtime = liveRuntimeOver(wire.fetch);
 
     await harvestQuestions(runtime, XSTATE);
+
+    const stored = await storedIds(runtime, XSTATE);
+
+    expect(stored.toSorted()).toStrictEqual(["100", "200"]);
+  });
+
+  it("makes no reply-check request and keeps a thread the owner replied to when wired the live way", async () => {
+    const wire = fakeDiscord({
+      channels: {
+        x1: [
+          { content: "How do actors get stopped?", id: "100" },
+          { content: "Why are machine actors lazy?", id: "200" },
+        ],
+        x2: [],
+      },
+      replies: { "100": ["xena"] },
+    });
+
+    const runtime = liveRuntimeOver(wire.fetch);
+
+    await harvestQuestions(runtime, XSTATE);
+
+    expect(wire.requestsTo["100"]).toBeUndefined();
+    expect(wire.requestsTo["200"]).toBeUndefined();
 
     const stored = await storedIds(runtime, XSTATE);
 
