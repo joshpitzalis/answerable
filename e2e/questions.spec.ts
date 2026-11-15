@@ -77,6 +77,50 @@ test("each Project has a tab with its own URL, marked when current, showing only
   await expect(page.getByText(/dark theme/u)).toHaveCount(0);
 });
 
+test("the Effect tab shows its single Channel in the Channel column", async ({
+  page,
+}) => {
+  await page.goto("/effect");
+
+  await expect(
+    page.getByRole("columnheader", { name: "Channel" })
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("row", { name: CLOWNFISH })
+      .getByText("effect-help", { exact: true })
+  ).toBeVisible();
+});
+
+test("the XState table shows each question's Channel and filters the Channels apart, and clearing restores all", async ({
+  page,
+}) => {
+  await page.goto("/xstate");
+
+  const stopActors = page.getByRole("row", { name: XSTATE_STOP_ACTORS });
+  const guards = page.getByRole("row", { name: XSTATE_GUARDS });
+
+  await expect(
+    stopActors.getByText("xstate-help", { exact: true })
+  ).toBeVisible();
+  await expect(
+    guards.getByText("xstate-guards", { exact: true })
+  ).toBeVisible();
+
+  await page.getByRole("combobox", { name: "Search" }).click();
+  await page.getByRole("option", { name: "Channel" }).click();
+  await page.getByRole("combobox", { name: "Value" }).click();
+  await page.getByRole("option", { name: "xstate-guards" }).click();
+
+  await expect(guards).toBeVisible();
+  await expect(stopActors).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Clear all" }).click();
+
+  await expect(guards).toBeVisible();
+  await expect(stopActors).toBeVisible();
+});
+
 test("reload keeps the tab, and back and forward move between tabs", async ({
   page,
 }) => {

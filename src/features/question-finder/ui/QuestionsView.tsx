@@ -2,18 +2,58 @@ import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Text } from "@astryxdesign/core/Text";
 import { useActor } from "@xstate/react";
+import { useMemo } from "react";
 
 import { TableComponent } from "#/components/Table.tsx";
+import type { QuestionsRow } from "#/features/question-finder/domain";
 
 import { FailedChannelsBanner } from "./FailedChannelsBanner";
 import type { createQuestionsMachine } from "./questionsMachine";
+import type { QuestionsTableRow } from "./TableColumn";
 import { columns } from "./TableColumn";
 
-const fieldDefs = [
-  { key: "name", type: "string", label: "Name" },
-  { key: "comments", type: "number", label: "Comment" },
-  { key: "question", type: "string", label: "questionuestion" },
-] as const;
+const toTableRows = (questions: QuestionsRow[]): QuestionsTableRow[] =>
+  questions.map((question) => ({
+    ...question,
+    channel: question.channel.name,
+  }));
+
+const toFieldDefs = (rows: QuestionsTableRow[]) =>
+  [
+    { key: "name", type: "string", label: "Name" },
+    { key: "comments", type: "number", label: "Comment" },
+    { key: "question", type: "string", label: "Question" },
+    {
+      key: "channel",
+      type: "enum",
+      label: "Channel",
+      enumValues: [...new Set(rows.map((row) => row.channel))].map(
+        (channel) => ({ value: channel, label: channel })
+      ),
+    },
+  ] as const;
+
+const QuestionsTable = ({
+  questions,
+  title,
+}: {
+  questions: QuestionsRow[];
+  title: string;
+}) => {
+  const rows = useMemo(() => toTableRows(questions), [questions]);
+  const fieldDefs = useMemo(() => toFieldDefs(rows), [rows]);
+
+  return (
+    <TableComponent
+      title={title}
+      data={rows}
+      columns={columns}
+      fieldDefs={fieldDefs}
+      idKey="id"
+      searchPlaceholder="Search questions..."
+    />
+  );
+};
 
 export const QuestionsView = ({
   machine,
@@ -43,14 +83,7 @@ export const QuestionsView = ({
         <FailedChannelsBanner
           failedChannels={snapshot.context.failedChannels}
         />
-        <TableComponent
-          title={title}
-          data={snapshot.context.questions}
-          columns={columns}
-          fieldDefs={fieldDefs}
-          idKey="id"
-          searchPlaceholder="Search questions..."
-        />
+        <QuestionsTable questions={snapshot.context.questions} title={title} />
       </>
     );
   }
