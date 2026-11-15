@@ -7,6 +7,7 @@ dist-ssr
 .nitro
 .tanstack
 .wrangler
+.alchemy
 .output
 .vinxi
 __unconfig*
@@ -17,3 +18,16 @@ todos.json
 !.env.example
 
 .playwright-mcp
+test-results
+playwright-report
+.stryker-tmp
+reports
+
+# Per-machine session cache with absolute paths.
+.impeccable/hook.cache.json
+
+# Agent worktrees: nested configs break oxlint plugin loading.
+.claude/worktrees/
+
+# The owner's real Projects; projects.config.example.ts is the template.
+src/features/question-finder/lib/projects.config.ts

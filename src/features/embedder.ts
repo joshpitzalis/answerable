@@ -10,8 +10,8 @@ import { Context, Effect, Layer, ManagedRuntime, Option, Schema } from "effect";
  */
 
 export class EmbeddingFailed extends Schema.TaggedError<EmbeddingFailed>()(
-	"EmbeddingFailed",
-	{ reason: Schema.String },
+  "EmbeddingFailed",
+  { reason: Schema.String }
 ) {}
 
 /**
@@ -20,42 +20,43 @@ export class EmbeddingFailed extends Schema.TaggedError<EmbeddingFailed>()(
  * parsed rather than trusted.
  */
 const EmbeddingResponse = Schema.Struct({
-	data: Schema.NonEmptyArray(Schema.Array(Schema.Number)),
+  data: Schema.NonEmptyArray(Schema.Array(Schema.Number)),
 });
 
 const decodeResponse = Schema.decodeUnknownOption(EmbeddingResponse);
 
 export class Embedder extends Context.Service<
-	Embedder,
-	{
-		readonly embed: (
-			text: string,
-		) => Effect.Effect<ReadonlyArray<number>, EmbeddingFailed>;
-	}
+  Embedder,
+  {
+    readonly embed: (
+      text: string
+    ) => Effect.Effect<readonly number[], EmbeddingFailed>;
+  }
 >()("app/Embedder") {
-	static readonly layer = Layer.sync(Embedder, () =>
-		Embedder.of({
-			embed: Effect.fn("Embedder.embed")(function* (text: string) {
-				const raw = yield* Effect.tryPromise({
-					try: () =>
-						env.AI.run("@cf/baai/bge-base-en-v1.5", {
-							text: [text],
-							pooling: "cls",
-						}),
-					catch: (cause) => new EmbeddingFailed({ reason: String(cause) }),
-				});
+  static readonly layer = Layer.sync(Embedder, () =>
+    Embedder.of({
+      embed: Effect.fn("Embedder.embed")(function* (text: string) {
+        const raw = yield* Effect.tryPromise({
+          try: () =>
+            env.AI.run("@cf/baai/bge-base-en-v1.5", {
+              text: [text],
+              pooling: "cls",
+            }),
+          catch: (cause) => new EmbeddingFailed({ reason: String(cause) }),
+        });
 
-				const parsed = decodeResponse(raw);
-				if (Option.isNone(parsed)) {
-					return yield* new EmbeddingFailed({
-						reason: "unexpected Workers AI response shape",
-					});
-				}
+        const parsed = decodeResponse(raw);
 
-				return parsed.value.data[0];
-			}),
-		}),
-	);
+        if (Option.isNone(parsed)) {
+          return yield* new EmbeddingFailed({
+            reason: "unexpected Workers AI response shape",
+          });
+        }
+
+        return parsed.value.data[0];
+      }),
+    })
+  );
 }
 
 /**
