@@ -116,13 +116,13 @@ Older features still use these. Do not create them in new code.
 | `components/` | `ui/` |
 | feature-local `services.ts` | `services/<name>.ts` |
 | `tests/` | `__tests__/` |
-| `src/lib/hooks/` | `src/shared/hooks/` |
+| `src/lib/` | `src/shared/<purpose>/` (`src/lib/hooks/` becomes `src/shared/hooks/`) |
 
 ## File growth
 
 - Aim for roughly 200 lines per file. Keep a larger file only when it is one cohesive unit and splitting it would make it harder to read.
 - When a file grows, replace it with a same-named folder containing `index.ts`. Extract the most semantically isolated concept into a named sibling file; repeat as needed.
-- Apply this recursively to features, domain code, workflows, services, helpers and utilities. A feature-local service grows into `index.ts` (its contract), `Live.ts` and `Test.ts`.
+- Apply this recursively to features, domain code, workflows, services, helpers and utilities. A feature-local service starts as one file holding its contract, stub layer and live layer; when it grows it becomes a folder with `index.ts` (the contract and its layers), `handlers/` for each operation and `lib/` for its helpers, as `services/discord/` does.
 - When a folder holds three files of the same kind suffix, move them into a folder named for the kind (`lib/utils/`, `domain/rules/`). Files keep their suffix, and the kind folder gets no `index.ts`; import each file directly. Two files of a kind stay where they are.
 
 Start:
@@ -190,7 +190,7 @@ Place each test at the cheapest level where the bug it guards against would turn
 
 | The behaviour is… | Its test lives in… |
 | --- | --- |
-| A rule, calculation or state transition | a unit test beside `domain.ts` / `constraints.ts` |
+| A rule, calculation or state transition | a unit test beside `domain.ts` |
 | An entry point's contract: reply, status, refusal | an `index.ts` test against fake service Layers |
 | What a component renders for a given state, and what it sends | a component test (Vitest + Testing Library) |
 | A user journey that needs a real browser and the full stack | a Playwright spec in `e2e/` |
