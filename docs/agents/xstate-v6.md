@@ -1,8 +1,8 @@
-# XState v6 beta notes (xstate@6.0.0-beta.3, @xstate/react@7.0.0-beta.0, effect@4.1.4)
+# XState v6 beta notes (@xstate/react@7.0.0-beta.0, effect@4.1.4)
 
 Source of truth: installed package docs at `node_modules/xstate/docs/*.md` (index.md, agents.md, cheatsheet.md, xstate-v5-to-v6.md, invoke.md, spawn.md, delays.md, testing.md, history-states.md, final-states.md) and `.d.ts` under `node_modules/@xstate/react/dist/declarations/src/`. Everything marked RAN was executed with Node 24 against the installed packages in a throwaway probe before the feature was built. The working code that grew out of it is in `src/features/question-finder/workflows/` (Harvest machines, `fromEffect.ts`) and `src/features/question-finder/ui/questionsMachine.ts`. Re-check these notes when the pinned versions change.
 
-The shipped README says "v6 alpha"; the package is beta.3. `xstate` has zero runtime deps. Note the docs say `createMachine` takes ONE argument; `createMachine(config, impls)` throws.
+The shipped README says "v6 alpha"; the package is a beta. These notes were gathered against `xstate@6.0.0-beta.3`; the repo pins `6.0.0-beta.2`, on which the unit and e2e suites pass. `xstate` has zero runtime deps. Note the docs say `createMachine` takes ONE argument; `createMachine(config, impls)` throws.
 
 ## 0. Renamed / removed
 

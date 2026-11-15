@@ -6,5 +6,3 @@ allowBuilds:
   msgpackr-extract: false
   sharp: true
   workerd: true
-minimumReleaseAgeExclude:
-  - xstate@6.0.0-beta.3

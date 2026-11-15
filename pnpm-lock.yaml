@@ -43,7 +43,7 @@ importers:
         version: 1.169.5(esbuild@0.28.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(rolldown@1.2.16)(supports-color@10.2.2)(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.1))
       '@xstate/react':
         specifier: 7.0.0-beta.0
-        version: 7.0.0-beta.0(@types/react@19.2.18)(react@19.2.8)(xstate@6.0.0-beta.3)
+        version: 7.0.0-beta.0(@types/react@19.2.18)(react@19.2.8)(xstate@6.0.0-beta.2)
       alchemy:
         specifier: 2.0.0-beta.87
         version: 2.0.0-beta.87(@effect/platform-node@4.1.4(effect@4.1.4)(redis@6.3.1))(@types/react@19.2.18)(effect@4.1.4)(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.1))(ws@8.23.0)
@@ -63,8 +63,8 @@ importers:
         specifier: ^4.1.18
         version: 4.3.3
       xstate:
-        specifier: 6.0.0-beta.3
-        version: 6.0.0-beta.3
+        specifier: 6.0.0-beta.2
+        version: 6.0.0-beta.2
     devDependencies:
       '@astryxdesign/cli':
         specifier: ^0.4.2
@@ -4038,8 +4038,8 @@ packages:
   xmlchars@2.2.0:
     resolution: {integrity: sha512-JZnDKK8B0RCDw84FNdDAIpZK+JuJw+s7Lz8nksI7SIuU3UXJJslUthsi+uWBUYOwPFwW7W7PRLRfUKpxjtjFCw==}
 
-  xstate@6.0.0-beta.3:
-    resolution: {integrity: sha512-b6C6SQ9cern6sD531uHcwOH94lBL+701Jd/VRSkzT8oAV1AKTT9oXFZtvC5DajUU4+8gmTLBTMHjZjd0VrsmAg==}
+  xstate@6.0.0-beta.2:
+    resolution: {integrity: sha512-jFqR+aZbmPCfwMhOw4TPqamfjWWN8H9DAVKlOp3pWY4W9IaqYu3mlb0VvkY8R5pNBn4kz7JsVbAFkddoZlii1A==}
     hasBin: true
 
   y18n@5.0.8:
@@ -6105,12 +6105,12 @@ snapshots:
 
   '@vitest/spy@5.1.0': {}
 
-  '@xstate/react@7.0.0-beta.0(@types/react@19.2.18)(react@19.2.8)(xstate@6.0.0-beta.3)':
+  '@xstate/react@7.0.0-beta.0(@types/react@19.2.18)(react@19.2.8)(xstate@6.0.0-beta.2)':
     dependencies:
       react: 19.2.8
       use-isomorphic-layout-effect: 1.2.1(@types/react@19.2.18)(react@19.2.8)
       use-sync-external-store: 1.6.0(react@19.2.8)
-      xstate: 6.0.0-beta.3
+      xstate: 6.0.0-beta.2
     transitivePeerDependencies:
       - '@types/react'
 
@@ -7599,7 +7599,7 @@ snapshots:
 
   xmlchars@2.2.0: {}
 
-  xstate@6.0.0-beta.3: {}
+  xstate@6.0.0-beta.2: {}
 
   y18n@5.0.8: {}
 
