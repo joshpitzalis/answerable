@@ -10,17 +10,18 @@ export const EFFECT_PROJECT: Project = {
 };
 
 /**
- * PLACEHOLDER ids: invented until the owner supplies the real XState server,
- * Channels and display name. Replacing them is an edit to this entry alone; the
- * stub-mode fixture (`services/_fixtures/messages.json`, `ANSWERED_THREADS`)
- * keys off the same placeholders and is only read with no Discord token bound.
+ * The server and `general` are real. The second Channel and the owner name are
+ * still PLACEHOLDERS until the owner supplies them; with a token bound, the
+ * placeholder Channel is reported as failed. The stub-mode fixture
+ * (`services/_fixtures/messages.json`, `ANSWERED_THREADS`) keys off the same
+ * ids and is only read with no Discord token bound.
  */
 export const XSTATE_PROJECT: Project = {
   slug: "xstate",
   label: "XState",
-  serverId: "xstate-placeholder-server",
+  serverId: "795785288994652170",
   channels: [
-    { id: "xstate-placeholder-channel-help", name: "xstate-help" },
+    { id: "795785288994652174", name: "general" },
     { id: "xstate-placeholder-channel-guards", name: "xstate-guards" },
   ],
   ownerName: "xstate-placeholder-owner",

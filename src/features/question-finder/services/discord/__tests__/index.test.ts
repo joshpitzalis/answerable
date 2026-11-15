@@ -54,9 +54,9 @@ describe("Discord.messagesSince for the XState Channels", () => {
   it("serves each placeholder Channel's own messages, oldest first, linked under the placeholder server", async () => {
     const help = await withDiscord((discord) =>
       discord.messagesSince(
-        "xstate-placeholder-channel-help",
+        "795785288994652174",
         Option.none(),
-        "xstate-placeholder-server"
+        "795785288994652170"
       )
     );
 
@@ -64,7 +64,7 @@ describe("Discord.messagesSince for the XState Channels", () => {
       discord.messagesSince(
         "xstate-placeholder-channel-guards",
         Option.none(),
-        "xstate-placeholder-server"
+        "795785288994652170"
       )
     );
 
@@ -78,7 +78,7 @@ describe("Discord.messagesSince for the XState Channels", () => {
       "1540000000000000005",
     ]);
     expect(help[0]?.url).toBe(
-      "https://discord.com/channels/xstate-placeholder-server/xstate-placeholder-channel-help/1540000000000000001"
+      "https://discord.com/channels/795785288994652170/795785288994652174/1540000000000000001"
     );
   });
 });

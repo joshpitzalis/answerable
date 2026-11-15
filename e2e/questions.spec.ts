@@ -100,9 +100,7 @@ test("the XState table shows each question's Channel and filters the Channels ap
   const stopActors = page.getByRole("row", { name: XSTATE_STOP_ACTORS });
   const guards = page.getByRole("row", { name: XSTATE_GUARDS });
 
-  await expect(
-    stopActors.getByText("xstate-help", { exact: true })
-  ).toBeVisible();
+  await expect(stopActors.getByText("general", { exact: true })).toBeVisible();
   await expect(
     guards.getByText("xstate-guards", { exact: true })
   ).toBeVisible();

@@ -30,8 +30,8 @@ describe("listQuestions in stub mode", () => {
     expect(
       reply.questions.map((row) => [row.channel.name, row.id]).toSorted()
     ).toStrictEqual([
+      ["general", "1540000000000000001"],
       ["xstate-guards", "1540000000000000004"],
-      ["xstate-help", "1540000000000000001"],
     ]);
   });
 
