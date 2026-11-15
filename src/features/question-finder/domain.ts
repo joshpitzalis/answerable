@@ -40,7 +40,10 @@ export const QuestionsRow = Schema.Struct({
   channel: Channel,
   name: Schema.String,
   comments: Schema.Number,
+  /** Markdown. For a forum post, `"{title}\n\n{first message}"`. */
   question: Schema.String,
+  /** The question starts with a forum post's title, which the table shows as a title. */
+  isPost: Schema.Boolean,
   dateAsked: Schema.Date,
   url: Schema.String,
 });
@@ -75,6 +78,7 @@ export const toRow = (
   name: message.authorName,
   comments: message.replyCount,
   question: message.content,
+  isPost: message.isPost,
   dateAsked: message.createdAt,
   url: message.url,
 });

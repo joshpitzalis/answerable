@@ -338,6 +338,7 @@ describe("a forum Channel", () => {
     expect(first).toMatchObject({
       comments: 3,
       id: "100",
+      isPost: true,
       name: "ada",
       question: "Stopping actors\n\nHow do I stop one?",
       url: "https://discord.com/channels/wire-guild/100",

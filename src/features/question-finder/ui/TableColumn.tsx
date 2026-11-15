@@ -1,6 +1,5 @@
 import { Avatar } from "@astryxdesign/core/Avatar";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
-import { Link } from "@astryxdesign/core/Link";
 import type { TableColumn } from "@astryxdesign/core/Table";
 import { pixel, proportional } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
@@ -8,6 +7,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { humanizeDate } from "#/lib/utils/format-date.ts";
 
 import type { QuestionsTableRow } from "../lib/questionsTable.utils";
+import { QuestionCell } from "./QuestionCell";
 
 export const columns: TableColumn<QuestionsTableRow>[] = [
   {
@@ -30,13 +30,9 @@ export const columns: TableColumn<QuestionsTableRow>[] = [
     key: "question",
     header: "Question",
     width: proportional(5),
-    renderCell: (item: QuestionsTableRow) => (
-      // ponytail: link, not a row click. Row-level click needs a Table onRowClick
-      // prop that doesn't exist yet — add it the day the whole row must be a link.
-      <Link href={item.url} target="_blank" rel="noreferrer">
-        {item.question}
-      </Link>
-    ),
+    // ponytail: a link in the cell, not a row click. Row-level click needs a Table
+    // onRowClick prop that doesn't exist yet — add it the day the whole row must be a link.
+    renderCell: (item: QuestionsTableRow) => <QuestionCell item={item} />,
   },
   {
     key: "channel",
