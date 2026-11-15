@@ -22,6 +22,12 @@ Read [CODING_STANDARDS.md](CODING_STANDARDS.md) before adding, moving, testing o
 - Fake at a seam the code already has: a service contract (`Layer.succeed(Discord, Discord.of({...}))`) or an injected function (`listMessages(path, token, fetch)`). Module mocking is lint-banned.
 - Vitest aliases `cloudflare:workers` to an empty `env` (`src/shared/testing/cloudflareWorkers.ts`), so code that reads bindings gets stub services.
 
+## XState v6 (beta)
+
+- `xstate` and `@xstate/react` are pinned to exact beta versions. v6 is not v5: read [docs/agents/xstate-v6.md](docs/agents/xstate-v6.md) and the docs shipped in `node_modules/xstate/docs/` before writing a machine. Old v5 event keys are accepted and silently never fire.
+- Machines own flow and state; Effect services do the outside work, invoked through `workflows/fromEffect.ts` ([ADR 0001](docs/adr/0001-xstate-orchestrates-effect-services.md)). No Effect import may be reachable from the browser.
+- A beta newer than pnpm's release-age window needs its exact version under `minimumReleaseAgeExclude` in `pnpm-workspace.yaml`. Check its npm provenance first.
+
 ## Cloudflare via Alchemy
 
 - `alchemy.run.ts` is the single source of infrastructure: the Worker, its bindings and its secrets. There is no `wrangler.jsonc`.
