@@ -1,5 +1,8 @@
+import { setImmediate } from "node:timers/promises";
+
 import { Effect, Layer, ManagedRuntime, Option } from "effect";
 import { describe, expect, it } from "vitest";
+import { SimulatedClock } from "xstate";
 
 import type { Project } from "../domain";
 import { EFFECT_PROJECT } from "../lib/projects.config";
@@ -111,6 +114,151 @@ const twoChannelsWithOneQuestion = () =>
       x2: [],
     },
   });
+
+/** Lets promises and the Effect runtime run; the simulated clock never does. */
+const settle = async () => {
+  for (let tick = 0; tick < 50; tick += 1) {
+    // oxlint-disable-next-line no-await-in-loop -- ticks must run one after another
+    await setImmediate();
+  }
+};
+
+describe("a rate-limited Channel", () => {
+  it("waits as long as Discord asks, then retries and saves its questions", async () => {
+    const wire = fakeDiscord({
+      channels: {
+        x1: [{ content: "How do actors get stopped?", id: "100" }],
+        x2: [{ content: "How do actors get spawned?", id: "200" }],
+      },
+      limited: { x1: { retryAfterSeconds: 2.5, times: 1 } },
+    });
+
+    const clock = new SimulatedClock();
+    const runtime = runtimeOver(wire.fetch);
+
+    const done = harvestQuestions(runtime, XSTATE, clock);
+
+    await settle();
+    // The sibling is not held up by the waiting Channel.
+    await expect(storedIds(runtime, XSTATE)).resolves.toStrictEqual(["200"]);
+
+    clock.increment(2500);
+    await expect(done).resolves.toStrictEqual([]);
+    const stored = await storedIds(runtime, XSTATE);
+
+    expect(stored.toSorted()).toStrictEqual(["100", "200"]);
+    await expect(cursorOf(runtime, "x1")).resolves.toBe("100");
+  });
+
+  it("does not retry before the delay Discord asked for has passed", async () => {
+    const wire = fakeDiscord({
+      channels: {
+        x1: [{ content: "How do actors get stopped?", id: "100" }],
+        x2: [],
+      },
+      limited: { x1: { retryAfterSeconds: 2.5, times: 1 } },
+    });
+
+    const clock = new SimulatedClock();
+    const runtime = runtimeOver(wire.fetch);
+
+    const done = harvestQuestions(runtime, XSTATE, clock);
+
+    await settle();
+    clock.increment(2499);
+    await settle();
+
+    expect(wire.requestsTo["x1"]).toBe(1);
+
+    clock.increment(1);
+    await done;
+
+    expect(wire.requestsTo["x1"]).toBe(2);
+  });
+
+  it("retries the step it was limited in, not the whole Channel", async () => {
+    const wire = fakeDiscord({
+      channels: {
+        x1: [{ content: "How do actors get stopped?", id: "100" }],
+        x2: [],
+      },
+      limited: { "100": { retryAfterSeconds: 1, times: 1 } },
+    });
+
+    const clock = new SimulatedClock();
+    const runtime = runtimeOver(wire.fetch);
+
+    const done = harvestQuestions(runtime, XSTATE, clock);
+
+    await settle();
+    clock.increment(1000);
+
+    await expect(done).resolves.toStrictEqual([]);
+    expect(wire.requestsTo["x1"]).toBe(1);
+    await expect(storedIds(runtime, XSTATE)).resolves.toStrictEqual(["100"]);
+  });
+
+  it("is reported as rate-limited after 2 retries, with its cursor where it was", async () => {
+    const wire = fakeDiscord({
+      channels: {
+        x1: [{ content: "How do actors get stopped?", id: "100" }],
+        x2: [{ content: "How do actors get spawned?", id: "200" }],
+      },
+      limited: { x1: { retryAfterSeconds: 1, times: 3 } },
+    });
+
+    const clock = new SimulatedClock();
+    const runtime = runtimeOver(wire.fetch);
+
+    const done = harvestQuestions(runtime, XSTATE, clock);
+
+    await settle();
+    clock.increment(1000);
+    await settle();
+    clock.increment(1000);
+
+    await expect(done).resolves.toStrictEqual([
+      {
+        name: "xstate-help",
+        reason: "Rate-limited by Discord: still limited after 2 retries",
+      },
+    ]);
+    expect(wire.requestsTo["x1"]).toBe(3);
+    await expect(storedIds(runtime, XSTATE)).resolves.toStrictEqual(["200"]);
+    await expect(cursorOf(runtime, "x1")).resolves.toBeNull();
+  });
+
+  it("shares the 2-retry budget between its steps", async () => {
+    const wire = fakeDiscord({
+      channels: {
+        x1: [{ content: "How do actors get stopped?", id: "100" }],
+        x2: [],
+      },
+      limited: {
+        "100": { retryAfterSeconds: 1, times: 2 },
+        x1: { retryAfterSeconds: 1, times: 1 },
+      },
+    });
+
+    const clock = new SimulatedClock();
+    const runtime = runtimeOver(wire.fetch);
+
+    const done = harvestQuestions(runtime, XSTATE, clock);
+
+    await settle();
+    clock.increment(1000);
+    await settle();
+    clock.increment(1000);
+
+    await expect(done).resolves.toStrictEqual([
+      {
+        name: "xstate-help",
+        reason: "Rate-limited by Discord: still limited after 2 retries",
+      },
+    ]);
+    await expect(cursorOf(runtime, "x1")).resolves.toBeNull();
+  });
+});
 
 describe(harvestQuestions, () => {
   it("reports a Channel whose wire fails and still saves its sibling's questions", async () => {
