@@ -25,3 +25,6 @@ reports
 
 # Per-machine session cache with absolute paths.
 .impeccable/hook.cache.json
+
+# Agent worktrees: nested configs break oxlint plugin loading.
+.claude/worktrees/
