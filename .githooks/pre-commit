@@ -1,0 +1,3 @@
+#!/bin/sh
+# Blocks commits that carry the owner's private Project values.
+exec pnpm check:private

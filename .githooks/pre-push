@@ -1,0 +1,6 @@
+#!/bin/sh
+# Lint, types and unit tests before a push. e2e stays manual (`pnpm e2e`).
+set -e
+pnpm check
+pnpm types
+pnpm test
