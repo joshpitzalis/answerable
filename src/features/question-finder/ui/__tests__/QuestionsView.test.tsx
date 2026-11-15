@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import type { QuestionsReply } from "../../domain";
@@ -35,25 +35,65 @@ describe("the questions headline", () => {
 
   afterEach(cleanup);
 
-  it("shows the contributor statistic beside the table heading", async () => {
+  it("shows the median statistic beside the table heading", async () => {
     render(
-      viewOf(reply({ contributorStats: { meanResponses: 3.2, plusOneSd: 7 } }))
+      viewOf(
+        reply({
+          contributorStats: {
+            medianResponses: 1,
+            plusOneSd: 12,
+            topContributors: [],
+          },
+        })
+      )
     );
 
     await expect(
       screen.findByRole("heading", { name: "XState Questions" })
     ).resolves.toBeTruthy();
     expect(
-      screen.getByText("avg 3.2 responses per contributor (7 = +1 SD)")
+      screen.getByText("median 1 response per contributor (12 = +1 SD)")
     ).toBeTruthy();
   });
 
-  it("shows no statistic when nothing has been read", async () => {
+  it("shows the top contributors across the top of the page", async () => {
+    render(
+      viewOf(
+        reply({
+          contributorStats: {
+            medianResponses: 2.5,
+            plusOneSd: 8,
+            topContributors: [
+              { avatarUrl: null, name: "Zed", responses: 9 },
+              { avatarUrl: null, name: "Amy", responses: 4 },
+            ],
+          },
+        })
+      )
+    );
+
+    await screen.findByRole("heading", { name: "XState Questions" });
+
+    const strip = screen.getByRole("group", { name: "Top contributors" });
+
+    expect(
+      screen.getByText("median 2.5 responses per contributor (8 = +1 SD)")
+    ).toBeTruthy();
+    expect(within(strip).getByText("Zed")).toBeTruthy();
+    expect(within(strip).getByText("9")).toBeTruthy();
+    expect(within(strip).getByText("Amy")).toBeTruthy();
+    expect(within(strip).getByText("4")).toBeTruthy();
+  });
+
+  it("shows no statistic and no strip when nothing has been read", async () => {
     render(viewOf(reply({})));
 
     await screen.findByRole("heading", { name: "XState Questions" });
 
-    expect(screen.queryByText(/avg /u)).toBeNull();
+    expect(screen.queryByText(/median /u)).toBeNull();
     expect(screen.queryByText(/NaN/u)).toBeNull();
+    expect(
+      screen.queryByRole("group", { name: "Top contributors" })
+    ).toBeNull();
   });
 });

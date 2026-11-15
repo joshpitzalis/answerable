@@ -21,20 +21,20 @@ export const listQuestions = async (
 ): Promise<QuestionsReply> => {
   const failedChannels = await harvestQuestions(runtime, project);
 
-  const { questions, counts } = await runtime.runPromise(
+  const { questions, contributors } = await runtime.runPromise(
     Effect.gen(function* () {
       const store = yield* QuestionStore;
       const contributions = yield* Contributions;
 
       return {
-        counts: yield* contributions.responseCounts(project.slug),
+        contributors: yield* contributions.contributors(project.slug),
         questions: yield* store.listOpen(project.slug),
       };
     })
   );
 
   return {
-    contributorStats: contributorStats(counts),
+    contributorStats: contributorStats(contributors),
     failedChannels,
     questions,
   };

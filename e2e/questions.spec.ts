@@ -77,22 +77,35 @@ test("each Project has a tab with its own URL, marked when current, showing only
   await expect(page.getByText(/dark theme/u)).toHaveCount(0);
 });
 
-test("each Project's headline shows its contributor statistic, worked out from the fixture", async ({
+test("each Project's headline and top contributors are worked out from the fixture", async ({
   page,
 }) => {
   await page.goto("/effect");
 
-  // Ten authors with one message each: mean 1.0, SD 0, so 1.
+  // Ten authors with one message each: median 1; mean 1, SD 0, so 1.
   await expect(
-    page.getByText("avg 1.0 responses per contributor (1 = +1 SD)")
+    page.getByText("median 1 response per contributor (1 = +1 SD)")
   ).toBeVisible();
+
+  const top = page.getByRole("group", { name: "Top contributors" });
+
+  // All tied at 1, so the first five by name.
+  await expect(top).toContainText("Fish Fan 01");
+  await expect(top).toContainText("Fish Fan 05");
+  await expect(top).not.toContainText("Fish Fan 06");
 
   await page.getByRole("link", { name: "XState", exact: true }).click();
 
-  // Four authors with 1, 2, 1 and 1 messages: mean 1.25 (shown 1.3), SD 0.433, mean + SD 1.68, so 2.
+  // Four authors with 1, 2, 1 and 1 messages: median (1 + 1) / 2 = 1; mean 1.25, SD 0.433, mean + SD 1.68, so 2.
   await expect(
-    page.getByText("avg 1.3 responses per contributor (2 = +1 SD)")
+    page.getByText("median 1 response per contributor (2 = +1 SD)")
   ).toBeVisible();
+  // Otter Fan 02 with 2 first, then the three with 1 by name. The fixture has no
+  // avatars, so each shows the initials "O0" (first letters of "Otter" and "02").
+  await expect(top).toHaveText(
+    /Top contributorsO0Otter Fan 022O0Otter Fan 011O0Otter Fan 031O0Otter Fan 041/u
+  );
+  await expect(top).not.toContainText("Fish Fan");
 });
 
 test("the Effect tab shows its single Channel in the Channel column", async ({

@@ -27,6 +27,8 @@ describe("Discord.messagesSince", () => {
 
     expect(messages).toHaveLength(10);
     expect(messages.at(0)).toStrictEqual({
+      authorAvatarUrl: null,
+      authorIsBot: false,
       authorName: "Fish Fan 10",
       content:
         "Do guppies carry a counting schema — can one really tell four dots from five?",

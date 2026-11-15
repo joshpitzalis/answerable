@@ -15,6 +15,7 @@ import { toFieldDefs, toTableRows } from "../lib/questionsTable.utils";
 import { FailedChannelsBanner } from "./FailedChannelsBanner";
 import type { createQuestionsMachine } from "./questionsMachine";
 import { columns } from "./TableColumn";
+import { TopContributors } from "./TopContributors";
 
 const QuestionsTable = ({
   questions,
@@ -32,6 +33,11 @@ const QuestionsTable = ({
     <TableComponent
       title={title}
       subtitle={contributorStatsLabel(stats) ?? undefined}
+      summary={
+        stats === null ? undefined : (
+          <TopContributors contributors={stats.topContributors} />
+        )
+      }
       data={rows}
       columns={columns}
       fieldDefs={fieldDefs}

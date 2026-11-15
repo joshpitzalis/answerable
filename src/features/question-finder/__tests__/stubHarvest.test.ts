@@ -41,15 +41,29 @@ describe("listQuestions in stub mode", () => {
     const effect = await listQuestions(stubRuntime(), EFFECT_PROJECT);
     const xstate = await listQuestions(stubRuntime(), XSTATE_PROJECT);
 
-    // Ten authors with one message: mean 1, SD 0.
+    // Ten authors with one message: median 1; mean 1, SD 0, so 1. Ties by name, so the first five.
     expect(effect.contributorStats).toStrictEqual({
-      meanResponses: 1,
+      medianResponses: 1,
       plusOneSd: 1,
+      topContributors: [
+        { avatarUrl: null, name: "Fish Fan 01", responses: 1 },
+        { avatarUrl: null, name: "Fish Fan 02", responses: 1 },
+        { avatarUrl: null, name: "Fish Fan 03", responses: 1 },
+        { avatarUrl: null, name: "Fish Fan 04", responses: 1 },
+        { avatarUrl: null, name: "Fish Fan 05", responses: 1 },
+      ],
     });
-    // Otter Fan 02 wrote two of five messages, the other three one each: mean 1.25, SD 0.433, so 2.
+    // Otter Fan 02 wrote two of five messages, the other three one each: counts 2, 1, 1, 1.
+    // Median (1 + 1) / 2 = 1; mean 1.25, SD 0.433, so 2.
     expect(xstate.contributorStats).toStrictEqual({
-      meanResponses: 1.25,
+      medianResponses: 1,
       plusOneSd: 2,
+      topContributors: [
+        { avatarUrl: null, name: "Otter Fan 02", responses: 2 },
+        { avatarUrl: null, name: "Otter Fan 01", responses: 1 },
+        { avatarUrl: null, name: "Otter Fan 03", responses: 1 },
+        { avatarUrl: null, name: "Otter Fan 04", responses: 1 },
+      ],
     });
   });
 

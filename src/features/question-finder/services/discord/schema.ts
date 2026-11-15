@@ -10,6 +10,11 @@ const RawMessage = Schema.Struct({
   author: Schema.Struct({
     username: Schema.String,
     global_name: Schema.optional(Schema.NullOr(Schema.String)),
+    // Optional: read off Discord's documented shape, not probed against the live API.
+    id: Schema.optional(Schema.String),
+    avatar: Schema.optional(Schema.NullOr(Schema.String)),
+    /** `true` for bot and webhook accounts; absent or false for people. */
+    bot: Schema.optional(Schema.Boolean),
   }),
   thread: Schema.optional(
     Schema.Struct({
