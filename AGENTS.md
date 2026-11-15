@@ -6,9 +6,10 @@ Project-specific guidance for AI coding agents.
 
 Read [CODING_STANDARDS.md](CODING_STANDARDS.md) before adding, moving, testing or reviewing code: feature layout under `src/features/`, where each kind of code goes, file growth, tests, clickable surfaces and comments.
 
+A subagent implementing a ticket reads [docs/agents/implementer-rules.md](docs/agents/implementer-rules.md) first: worktree base, commands, checks, what never to run, report format.
+
 ## Lint and format: Ultracite (oxlint + oxfmt)
 
-- `pnpm fix` formats and autofixes; `pnpm check` verifies.
 - Review every autofix diff. Autofixes can change behaviour: one put `new` before `Schema.TaggedError<X>()(...)`.
 - Rule overrides live in `oxlint.config.ts`, each with its reason. A rule that fights an Effect idiom or CODING_STANDARDS.md gets an override there; a one-off exception gets `// oxlint-disable-next-line <rule> -- <reason>`.
 - `tools/oxlint/anti-slop/` is vendored from [dmmulroy/anti-slop](https://github.com/dmmulroy/anti-slop) (generic and Effect rules) and is ours to edit; record changes in its `UPSTREAM.md`. Keep `@oxlint/plugins` pinned to the exact `oxlint` version.
@@ -16,9 +17,7 @@ Read [CODING_STANDARDS.md](CODING_STANDARDS.md) before adding, moving, testing o
 
 ## Tests and verify
 
-- Run the `verify` skill before every `git push`: `pnpm verify` chains `pnpm check`, `pnpm types`, `pnpm test` and `pnpm e2e`, and must exit 0.
-- `pnpm test` is Vitest over `src/**/__tests__/*.test.ts(x)`. `pnpm e2e` is Playwright over `e2e/*.spec.ts`, served by `alchemy dev` with `e2e/e2e.env`, which leaves the Discord token unset so pages show fixture data.
-- After writing or changing tests, run Stryker on the files under test: `pnpm mutate --mutate "src/path/file.ts"`. Kill every surviving mutant with a test, or say why it is equivalent. A full `pnpm mutate` takes about 9 minutes; the report lands in `reports/mutation/index.html`.
+- The pre-push hook and CI run `pnpm check`, `pnpm types` and `pnpm test`. Run `pnpm e2e` yourself before pushing a change that touches UI, routes or the Harvest.
 - Fake at a seam the code already has: a service contract (`Layer.succeed(Discord, Discord.of({...}))`) or an injected function (`listMessages(path, token, fetch)`). Module mocking is lint-banned.
 - Vitest aliases `cloudflare:workers` to an empty `env` (`src/shared/testing/cloudflareWorkers.ts`), so code that reads bindings gets stub services.
 
@@ -31,7 +30,8 @@ Read [CODING_STANDARDS.md](CODING_STANDARDS.md) before adding, moving, testing o
 ## Projects config
 
 - The owner's real Discord servers, Channels and display names live in `src/features/question-finder/lib/projects.config.ts`, which is gitignored. Never commit it or copy its values into tracked files, tests, fixtures, commit messages or PR text.
-- `projects.config.example.ts` beside it is the committed template and the stand-in when no local file exists. With no Discord token bound the server always uses the example Projects, because the stub fixture keys off their ids. Tests import the example, never the local file.
+- `projects.config.example.ts` beside it is the committed template and the stand-in when no local file exists. With no Discord token bound the server always uses the example Projects, because the stub fixture keys off their ids. Tests import the example, never the local file. `pnpm check:private` fails when the local values appear in tracked or staged files.
+- A thin or empty questions list: read the Harvest funnel lines (one per Channel) in the dev server output first; use `scripts/discord-probe.mjs` when Discord's response shape is in question.
 
 ## Cloudflare via Alchemy
 
