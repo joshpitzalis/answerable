@@ -4,13 +4,20 @@ import type {
   DiscordMessage,
   Snowflake,
 } from "@/features/question-finder/domain";
-import { toMessage } from "@/features/question-finder/services/discord/lib/DTOs";
+import {
+  authorNameOf,
+  toMessage,
+} from "@/features/question-finder/services/discord/lib/DTOs";
 import type { DiscordFailed } from "@/features/question-finder/services/discord/lib/errors";
 
 import { fixtureFetch, listMessages } from "./handlers";
 
 const make = (fetch: typeof globalThis.fetch, token: string) => ({
-  messagesSince: (channelId: string, cursor: Option.Option<Snowflake>) =>
+  messagesSince: (
+    channelId: string,
+    cursor: Option.Option<Snowflake>,
+    serverId: string
+  ) =>
     listMessages(
       `/channels/${channelId}/messages?limit=10${
         Option.isNone(cursor) ? "" : `&after=${cursor.value}`
@@ -19,12 +26,16 @@ const make = (fetch: typeof globalThis.fetch, token: string) => ({
       fetch
       // Discord answers newest-first; the pipeline wants oldest-first so the
       // last message it sees is the new cursor.
-    ).pipe(Effect.map((raw) => raw.map(toMessage).toReversed())),
+    ).pipe(
+      Effect.map((raw) =>
+        raw.map((one) => toMessage(one, serverId)).toReversed()
+      )
+    ),
 
   hasReplyFrom: (threadId: string, authorName: string) =>
     listMessages(`/channels/${threadId}/messages?limit=10`, token, fetch).pipe(
       Effect.map((raw) =>
-        raw.map(toMessage).some((message) => message.authorName === authorName)
+        raw.some((message) => authorNameOf(message) === authorName)
       )
     ),
 });
@@ -35,7 +46,8 @@ export class Discord extends Context.Service<
     /** Messages newer than `cursor`, oldest first. `None` means "from the beginning". */
     readonly messagesSince: (
       channelId: string,
-      cursor: Option.Option<Snowflake>
+      cursor: Option.Option<Snowflake>,
+      serverId: string
     ) => Effect.Effect<readonly DiscordMessage[], DiscordFailed>;
     readonly hasReplyFrom: (
       threadId: string,

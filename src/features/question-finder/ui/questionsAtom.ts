@@ -2,6 +2,7 @@ import { Effect, Schema } from "effect";
 import { Atom } from "effect/reactivity";
 
 import { listQuestions } from "../index";
+import { EFFECT_PROJECT } from "../lib/projects.config";
 
 export class QuestionsUnavailable extends Schema.TaggedError<QuestionsUnavailable>()(
   "QuestionsUnavailable",
@@ -9,7 +10,7 @@ export class QuestionsUnavailable extends Schema.TaggedError<QuestionsUnavailabl
 ) {}
 
 const fetchQuestions = Effect.tryPromise({
-  try: () => listQuestions(),
+  try: () => listQuestions({ data: EFFECT_PROJECT.slug }),
   catch: (cause) => new QuestionsUnavailable({ reason: String(cause) }),
 });
 

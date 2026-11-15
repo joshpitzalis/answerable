@@ -1,14 +1,19 @@
 import type { DiscordMessage } from "@/features/question-finder/domain";
 import type { RawMessage } from "@/features/question-finder/services/discord/schema";
 
-import { GUILD } from "./constants";
+export const authorNameOf = (raw: RawMessage): string =>
+  raw.author.global_name ?? raw.author.username;
 
-export const toMessage = (raw: RawMessage): DiscordMessage => ({
+/** `fallbackServerId` is the Project's server, for payloads that carry no thread. */
+export const toMessage = (
+  raw: RawMessage,
+  fallbackServerId: string
+): DiscordMessage => ({
   id: raw.id,
   threadId: raw.thread?.id ?? raw.id,
-  authorName: raw.author.global_name ?? raw.author.username,
+  authorName: authorNameOf(raw),
   content: raw.content,
   replyCount: raw.thread?.message_count ?? 0,
   createdAt: new Date(raw.timestamp),
-  url: `https://discord.com/channels/${raw.thread?.guild_id ?? GUILD}/${raw.channel_id}/${raw.id}`,
+  url: `https://discord.com/channels/${raw.thread?.guild_id ?? fallbackServerId}/${raw.channel_id}/${raw.id}`,
 });

@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 
+import type { Project } from "../domain";
 import { QuestionStore } from "../services/question-store";
 import { harvestQuestions } from "./harvestQuestions";
 
@@ -10,8 +11,10 @@ import { harvestQuestions } from "./harvestQuestions";
  * that line the day a cron Worker calls `harvestQuestions` on a schedule — the
  * `listOpen` read below is already the final shape.
  */
-export const listQuestions = Effect.fn("listQuestions")(function* () {
-  yield* harvestQuestions();
+export const listQuestions = Effect.fn("listQuestions")(function* (
+  project: Project
+) {
+  yield* harvestQuestions(project);
 
-  return yield* QuestionStore.use((store) => store.listOpen());
+  return yield* QuestionStore.use((store) => store.listOpen(project.slug));
 });

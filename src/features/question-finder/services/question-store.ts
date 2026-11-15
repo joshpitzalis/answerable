@@ -6,7 +6,7 @@ export class QuestionStore extends Context.Service<
   QuestionStore,
   {
     readonly save: (rows: readonly QuestionsRow[]) => Effect.Effect<void>;
-    readonly listOpen: () => Effect.Effect<QuestionsRow[]>;
+    readonly listOpen: (projectSlug: string) => Effect.Effect<QuestionsRow[]>;
   }
 >()("app/QuestionStore") {
   // ponytail: in-memory Map keyed by id, so a re-harvest is idempotent.
@@ -21,7 +21,10 @@ export class QuestionStore extends Context.Service<
             byId.set(row.id, row);
           }
         }),
-      listOpen: () => Effect.sync(() => [...byId.values()]),
+      listOpen: (projectSlug) =>
+        Effect.sync(() =>
+          [...byId.values()].filter((row) => row.project === projectSlug)
+        ),
     });
   });
 }

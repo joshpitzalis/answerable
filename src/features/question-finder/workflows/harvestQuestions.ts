@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 
+import type { Channel, Project } from "../domain";
 import { looksLikeAQuestion, toRow } from "../domain";
-import { CHANNELS, ME } from "../lib/config";
 import { Corpus } from "../services/corpus";
 import { Cursors } from "../services/cursors";
 import { Discord } from "../services/discord";
@@ -19,11 +19,17 @@ import { QuestionStore } from "../services/question-store";
  */
 
 const harvestChannel = Effect.fn("harvestChannel")(function* (
-  channelId: string
+  project: Project,
+  channel: Channel
 ) {
   const discord = yield* Discord;
-  const cursor = yield* Cursors.use((cursors) => cursors.get(channelId));
-  const messages = yield* discord.messagesSince(channelId, cursor);
+  const cursor = yield* Cursors.use((cursors) => cursors.get(channel.id));
+
+  const messages = yield* discord.messagesSince(
+    channel.id,
+    cursor,
+    project.serverId
+  );
 
   const newest = messages.at(-1);
 
@@ -35,12 +41,12 @@ const harvestChannel = Effect.fn("harvestChannel")(function* (
 
   const unanswered = yield* Effect.filter(asking, (message) =>
     Effect.map(
-      discord.hasReplyFrom(message.threadId, ME),
+      discord.hasReplyFrom(message.threadId, project.ownerName),
       (replied) => !replied
     )
   );
 
-  const posts = yield* Corpus.use((corpus) => corpus.all());
+  const posts = yield* Corpus.use((corpus) => corpus.all(project.slug));
 
   const judged = yield* Effect.forEach(
     unanswered,
@@ -53,31 +59,33 @@ const harvestChannel = Effect.fn("harvestChannel")(function* (
 
   const rows = judged
     .filter(({ verdict }) => verdict.answerable)
-    .map(({ message }) => toRow(message));
+    .map(({ message }) => toRow(message, project, channel));
 
   // Save BEFORE advancing. The cursor is a promise that these messages are
   // already accounted for — advancing first would drop them permanently on a
   // mid-run failure, and they can never be re-read.
   yield* QuestionStore.use((store) => store.save(rows));
-  yield* Cursors.use((cursors) => cursors.set(channelId, newest.id));
+  yield* Cursors.use((cursors) => cursors.set(channel.id, newest.id));
 });
 
 /**
- * The write side. One bad channel must not kill the others.
+ * The write side, for one Project. One bad channel must not kill the others.
  *
  * This is what the cron Worker will call. It returns nothing — the rows go to
  * the store, which is the only thing the read side ever touches.
  */
-export const harvestQuestions = Effect.fn("harvestQuestions")(function* () {
+export const harvestQuestions = Effect.fn("harvestQuestions")(function* (
+  project: Project
+) {
   yield* Effect.forEach(
-    CHANNELS,
-    (channelId) =>
-      harvestChannel(channelId).pipe(
+    project.channels,
+    (channel) =>
+      harvestChannel(project, channel).pipe(
         // Still swallowed — one bad channel must not kill the others — but a
         // dead token is a 401 on every channel, and silence reads as "no
         // questions today". The log is the difference between the two.
         Effect.catchCause((cause) =>
-          Effect.logError(`harvest failed for ${channelId}`, cause)
+          Effect.logError(`harvest failed for ${channel.id}`, cause)
         )
       ),
     { concurrency: 3, discard: true }
