@@ -9,7 +9,15 @@ import { ANSWERED_THREADS } from "#/features/question-finder/services/discord/li
  */
 export const fixtureFetch: typeof globalThis.fetch = (input) => {
   const url = new URL(String(input));
-  // `/api/v10/channels/{id}/messages`
+
+  // `/api/v9/channels/{id}`: the kind lookup. Every fixture Channel is text.
+  if (url.pathname.split("/").at(-2) === "channels") {
+    return Promise.resolve(
+      Response.json({ id: url.pathname.split("/").at(-1), type: 0 })
+    );
+  }
+
+  // `/api/v9/channels/{id}/messages`
   const id = url.pathname.split("/").at(-2) ?? "";
   const after = url.searchParams.get("after");
 

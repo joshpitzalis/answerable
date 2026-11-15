@@ -1,6 +1,7 @@
 import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
 
+import { fakeDiscord } from "../../../__tests__/discordWire.test-utils";
 import { Discord } from "../index";
 
 const SERVER = "795981131316985866";
@@ -31,6 +32,7 @@ describe("Discord.messagesSince", () => {
         "Do guppies carry a counting schema — can one really tell four dots from five?",
       createdAt: new Date("2026-06-25T19:29:05.200Z"),
       id: "1519786530753872124",
+      isPost: false,
       replyCount: 1,
       threadId: "1519786530753872124",
       url: "https://discord.com/channels/795981131316985866/1125094089281511474/1519786530753872124",
@@ -47,6 +49,56 @@ describe("Discord.messagesSince", () => {
       "1534145198391693322",
       "1535912718735777863",
     ]);
+  });
+});
+
+const withForum = <A, E>(
+  run: (discord: Discord["Service"]) => Effect.Effect<A, E>
+) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      return yield* run(yield* Discord);
+    }).pipe(
+      Effect.provide(
+        Discord.layer(
+          "token",
+          fakeDiscord({
+            channels: {},
+            forums: {
+              f1: [
+                { content: "a", id: "99", title: "Ninety-nine" },
+                { content: "b", id: "100", title: "One hundred" },
+              ],
+            },
+          }).fetch
+        )
+      )
+    )
+  );
+
+describe("Discord.messagesSince for a forum Channel", () => {
+  it("compares post ids by time, so a longer id is newer", async () => {
+    const posts = await withForum((discord) =>
+      discord.messagesSince("f1", Option.some("99"), "server")
+    );
+
+    expect(posts.map((post) => post.id)).toStrictEqual(["100"]);
+  });
+
+  it("does not return a post whose id is shorter than the cursor", async () => {
+    const posts = await withForum((discord) =>
+      discord.messagesSince("f1", Option.some("100"), "server")
+    );
+
+    expect(posts).toStrictEqual([]);
+  });
+
+  it("returns every post, oldest first, when there is no cursor", async () => {
+    const posts = await withForum((discord) =>
+      discord.messagesSince("f1", Option.none(), "server")
+    );
+
+    expect(posts.map((post) => post.id)).toStrictEqual(["99", "100"]);
   });
 });
 

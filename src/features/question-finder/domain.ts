@@ -12,6 +12,8 @@ export const DiscordMessage = Schema.Struct({
   createdAt: Schema.Date,
   /** Deep link to the message in the Discord client. */
   url: Schema.String,
+  /** A forum post (title and first message) rather than a message in a text Channel. */
+  isPost: Schema.Boolean,
 });
 
 export type DiscordMessage = Schema.Schema.Type<typeof DiscordMessage>;
@@ -57,10 +59,10 @@ export interface QuestionsReply {
   readonly failedChannels: FailedChannel[];
 }
 
-// ponytail: '?' is enough for text channels. If these are forum channels every
-// thread is already a question and this filter disappears entirely.
+// ponytail: '?' is enough for text channels. A forum post is a question by
+// being a post, so it skips the rule.
 export const looksLikeAQuestion = (message: DiscordMessage): boolean =>
-  message.content.includes("?");
+  message.isPost || message.content.includes("?");
 
 export const toRow = (
   message: DiscordMessage,

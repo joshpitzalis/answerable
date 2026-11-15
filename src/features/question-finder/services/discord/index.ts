@@ -7,16 +7,66 @@ import type {
 import {
   authorNameOf,
   toMessage,
+  toPostMessage,
 } from "#/features/question-finder/services/discord/lib/DTOs";
 import type {
   DiscordFailed,
   DiscordRateLimited,
 } from "#/features/question-finder/services/discord/lib/errors";
 
-import { fixtureFetch, listMessages } from "./handlers";
+import {
+  fixtureFetch,
+  isPostChannel,
+  listMessages,
+  listPosts,
+} from "./handlers";
 
-const make = (fetch: typeof globalThis.fetch, token: string) => ({
-  messagesSince: (
+/** Snowflakes of different lengths still order by time: longer is newer. */
+const isNewer = (id: Snowflake, cursor: Snowflake) =>
+  id.length === cursor.length ? id > cursor : id.length > cursor.length;
+
+const make = (fetch: typeof globalThis.fetch, token: string) => {
+  // Which Channels are forums, asked once each for the life of this service.
+  const postChannels = new Map<string, boolean>();
+
+  const isPostChannelCached = (channelId: string) => {
+    const known = postChannels.get(channelId);
+
+    return known === undefined
+      ? isPostChannel(channelId, token, fetch).pipe(
+          Effect.tap((isPost) =>
+            Effect.sync(() => postChannels.set(channelId, isPost))
+          )
+        )
+      : Effect.succeed(known);
+  };
+
+  const postsSince = (
+    channelId: string,
+    cursor: Option.Option<Snowflake>,
+    serverId: string
+  ) =>
+    listPosts(channelId, token, fetch).pipe(
+      Effect.map(({ threads, first_messages: firstMessages = [] }) =>
+        threads
+          .filter(
+            (post) => Option.isNone(cursor) || isNewer(post.id, cursor.value)
+          )
+          .flatMap((post) => {
+            const first = firstMessages.find(
+              (message) => message.id === post.id
+            );
+
+            return first === undefined
+              ? []
+              : [toPostMessage(post, first, serverId)];
+          })
+          // Newest first from Discord; oldest first for the pipeline.
+          .toReversed()
+      )
+    );
+
+  const textMessagesSince = (
     channelId: string,
     cursor: Option.Option<Snowflake>,
     serverId: string
@@ -33,15 +83,34 @@ const make = (fetch: typeof globalThis.fetch, token: string) => ({
       Effect.map((raw) =>
         raw.map((message) => toMessage(message, serverId)).toReversed()
       )
-    ),
+    );
 
-  hasReplyFrom: (threadId: string, authorName: string) =>
-    listMessages(`/channels/${threadId}/messages?limit=10`, token, fetch).pipe(
-      Effect.map((raw) =>
-        raw.some((message) => authorNameOf(message) === authorName)
-      )
-    ),
-});
+  return {
+    messagesSince: (
+      channelId: string,
+      cursor: Option.Option<Snowflake>,
+      serverId: string
+    ) =>
+      isPostChannelCached(channelId).pipe(
+        Effect.flatMap((isPost) =>
+          isPost
+            ? postsSince(channelId, cursor, serverId)
+            : textMessagesSince(channelId, cursor, serverId)
+        )
+      ),
+
+    hasReplyFrom: (threadId: string, authorName: string) =>
+      listMessages(
+        `/channels/${threadId}/messages?limit=10`,
+        token,
+        fetch
+      ).pipe(
+        Effect.map((raw) =>
+          raw.some((message) => authorNameOf(message) === authorName)
+        )
+      ),
+  };
+};
 
 export class Discord extends Context.Service<
   Discord,

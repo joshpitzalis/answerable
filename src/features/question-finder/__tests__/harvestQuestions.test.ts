@@ -260,6 +260,251 @@ describe("a rate-limited Channel", () => {
   });
 });
 
+const FORUM_PROJECT: Project = {
+  ...XSTATE,
+  channels: [{ id: "f1", name: "xstate-forum" }],
+};
+
+const rowsOf = (runtime: ReturnType<typeof runtimeOver>, project: Project) =>
+  runtime.runPromise(
+    Effect.gen(function* () {
+      const store = yield* QuestionStore;
+
+      return yield* store.listOpen(project.slug);
+    })
+  );
+
+const threePosts = () =>
+  fakeDiscord({
+    channels: {},
+    forums: {
+      f1: [
+        {
+          content: "How do I stop one?",
+          id: "100",
+          replyCount: 3,
+          title: "Stopping actors",
+        },
+        {
+          content: "I call stop and nothing happens.",
+          id: "200",
+          title: "Actors never stop",
+        },
+        {
+          content: "Is it a bug?",
+          id: "300",
+          title: "Spawned actors vanish",
+        },
+      ],
+    },
+  });
+
+describe("a forum Channel", () => {
+  it("is saved as questions carrying the post's title, link and reply count", async () => {
+    const runtime = runtimeOver(threePosts().fetch);
+
+    await expect(
+      harvestQuestions(runtime, FORUM_PROJECT)
+    ).resolves.toStrictEqual([]);
+
+    const rows = await rowsOf(runtime, FORUM_PROJECT);
+    const first = rows.find((row) => row.id === "100");
+
+    expect(first).toMatchObject({
+      comments: 3,
+      id: "100",
+      name: "ada",
+      question: "Stopping actors\n\nHow do I stop one?",
+      url: "https://discord.com/channels/wire-guild/100",
+    });
+    expect(first?.dateAsked).toStrictEqual(new Date("2026-08-01T00:00:00Z"));
+  });
+
+  it("keeps a post whose text has no question mark", async () => {
+    const runtime = runtimeOver(threePosts().fetch);
+
+    await harvestQuestions(runtime, FORUM_PROJECT);
+
+    const stored = await storedIds(runtime, FORUM_PROJECT);
+
+    expect(stored.toSorted()).toStrictEqual(["100", "200", "300"]);
+  });
+
+  it("reads only posts newer than the cursor and advances it to the newest post", async () => {
+    const runtime = runtimeOver(threePosts().fetch);
+
+    await runtime.runPromise(
+      Cursors.use((cursors) => cursors.set("f1", "200"))
+    );
+
+    await harvestQuestions(runtime, FORUM_PROJECT);
+
+    await expect(storedIds(runtime, FORUM_PROJECT)).resolves.toStrictEqual([
+      "300",
+    ]);
+    await expect(cursorOf(runtime, "f1")).resolves.toBe("300");
+  });
+
+  it("asks Discord for the Channel's kind and its active posts on a first run, and for the posts and replies only on a second", async () => {
+    const wire = threePosts();
+    const runtime = runtimeOver(wire.fetch);
+
+    await harvestQuestions(runtime, FORUM_PROJECT);
+
+    expect(wire.requestLog).toStrictEqual([
+      "/api/v9/channels/f1",
+      "/api/v9/channels/f1/threads/search?archived=false&sort_by=creation_time&sort_order=desc&limit=10&offset=0",
+      "/api/v9/channels/100/messages?limit=10",
+      "/api/v9/channels/200/messages?limit=10",
+      "/api/v9/channels/300/messages?limit=10",
+    ]);
+
+    wire.requestLog.length = 0;
+    await expect(
+      harvestQuestions(runtime, FORUM_PROJECT)
+    ).resolves.toStrictEqual([]);
+
+    expect(wire.requestLog).toStrictEqual([
+      "/api/v9/channels/f1/threads/search?archived=false&sort_by=creation_time&sort_order=desc&limit=10&offset=0",
+    ]);
+    await expect(storedIds(runtime, FORUM_PROJECT)).resolves.toHaveLength(3);
+  });
+
+  it("skips a post that has no first message and keeps the rest", async () => {
+    const wire = fakeDiscord({
+      channels: {},
+      forums: {
+        f1: [
+          {
+            content: "gone",
+            id: "100",
+            title: "Actors",
+            withoutFirstMessage: true,
+          },
+          { content: "Why?", id: "200", title: "Actors stop" },
+        ],
+      },
+    });
+
+    const runtime = runtimeOver(wire.fetch);
+
+    await expect(
+      harvestQuestions(runtime, FORUM_PROJECT)
+    ).resolves.toStrictEqual([]);
+    await expect(storedIds(runtime, FORUM_PROJECT)).resolves.toStrictEqual([
+      "200",
+    ]);
+  });
+
+  it("waits out a rate limit on the post listing like any other", async () => {
+    const wire = fakeDiscord({
+      channels: {},
+      forums: {
+        f1: [{ content: "Why?", id: "100", title: "Actors stop" }],
+      },
+      limited: { f1: { retryAfterSeconds: 2, times: 1 } },
+    });
+
+    const clock = new SimulatedClock();
+    const runtime = runtimeOver(wire.fetch);
+
+    const done = harvestQuestions(runtime, FORUM_PROJECT, clock);
+
+    await settle();
+    await expect(storedIds(runtime, FORUM_PROJECT)).resolves.toStrictEqual([]);
+
+    clock.increment(2000);
+
+    await expect(done).resolves.toStrictEqual([]);
+    await expect(storedIds(runtime, FORUM_PROJECT)).resolves.toStrictEqual([
+      "100",
+    ]);
+  });
+
+  it("waits out a rate limit on the kind lookup, then asks only once more", async () => {
+    const wire = fakeDiscord({
+      channels: {},
+      forums: {
+        f1: [{ content: "Why?", id: "100", title: "Actors stop" }],
+      },
+      limited: { "kind:f1": { retryAfterSeconds: 1, times: 1 } },
+    });
+
+    const clock = new SimulatedClock();
+    const runtime = runtimeOver(wire.fetch);
+
+    const done = harvestQuestions(runtime, FORUM_PROJECT, clock);
+
+    await settle();
+    clock.increment(1000);
+
+    await expect(done).resolves.toStrictEqual([]);
+    expect(wire.requestsTo["kind:f1"]).toBe(2);
+    await expect(storedIds(runtime, FORUM_PROJECT)).resolves.toStrictEqual([
+      "100",
+    ]);
+  });
+
+  it("reports a Channel whose kind cannot be read", async () => {
+    const wire = fakeDiscord({
+      broken: ["kind:f1"],
+      channels: {},
+      forums: { f1: [] },
+    });
+
+    await expect(
+      harvestQuestions(runtimeOver(wire.fetch), FORUM_PROJECT)
+    ).resolves.toStrictEqual([
+      { name: "xstate-forum", reason: "GET /channels/f1 returned 500" },
+    ]);
+  });
+
+  it("reports a Channel whose post listing fails", async () => {
+    const wire = fakeDiscord({
+      broken: ["f1"],
+      channels: {},
+      forums: { f1: [] },
+    });
+
+    const failed = await harvestQuestions(
+      runtimeOver(wire.fetch),
+      FORUM_PROJECT
+    );
+
+    expect(failed.map((channel) => channel.name)).toStrictEqual([
+      "xstate-forum",
+    ]);
+  });
+
+  it("is read beside a text Channel, which still needs its question mark", async () => {
+    const wire = fakeDiscord({
+      channels: {
+        x1: [
+          { content: "How do actors get stopped?", id: "100" },
+          { content: "Actors are great.", id: "150" },
+        ],
+      },
+      forums: {
+        f1: [{ content: "It never stops.", id: "200", title: "Actors hang" }],
+      },
+    });
+
+    const runtime = runtimeOver(wire.fetch);
+
+    await harvestQuestions(runtime, {
+      ...XSTATE,
+      channels: [
+        { id: "x1", name: "xstate-help" },
+        { id: "f1", name: "xstate-forum" },
+      ],
+    });
+
+    const stored = await storedIds(runtime, XSTATE);
+
+    expect(stored.toSorted()).toStrictEqual(["100", "200"]);
+  });
+});
+
 describe(harvestQuestions, () => {
   it("reports a Channel whose wire fails and still saves its sibling's questions", async () => {
     const wire = fakeDiscord({
