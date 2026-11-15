@@ -73,6 +73,18 @@ const runtimeOver = (
     )
   );
 
+/** Wired the way `src/app/runtime.ts` wires a bound Discord token. */
+const liveRuntimeOver = (fetch: typeof globalThis.fetch) =>
+  ManagedRuntime.make(
+    Layer.mergeAll(
+      Discord.layer("token", fetch),
+      Cursors.stub,
+      corpus,
+      Judge.everythingAnswerable,
+      QuestionStore.stub
+    )
+  );
+
 const storedIds = async (
   runtime: ReturnType<typeof runtimeOver>,
   project: Project
@@ -765,6 +777,27 @@ describe(harvestQuestions, () => {
 
     await expect(storedIds(runtime, XSTATE)).resolves.toStrictEqual(["100"]);
     await expect(storedIds(runtime, EFFECT_PROJECT)).resolves.toStrictEqual([]);
+  });
+
+  it("keeps a question that matches no Post when wired the live way", async () => {
+    const wire = fakeDiscord({
+      channels: {
+        x1: [
+          { content: "How do actors get stopped?", id: "100" },
+          { content: "What is the best pizza topping?", id: "200" },
+          { content: "Just chatting.", id: "300" },
+        ],
+        x2: [],
+      },
+    });
+
+    const runtime = liveRuntimeOver(wire.fetch);
+
+    await harvestQuestions(runtime, XSTATE);
+
+    const stored = await storedIds(runtime, XSTATE);
+
+    expect(stored.toSorted()).toStrictEqual(["100", "200"]);
   });
 
   it("leaves out a thread the owner replied to under that Project's display name", async () => {

@@ -31,7 +31,11 @@ const appLayer = Layer.mergeAll(
   ),
   Cursors.stub,
   Corpus.stub,
-  Judge.stub,
+  // The owner has no real Posts yet: with a token bound the stub Posts must not
+  // decide what shows. Without one, the stub Judge keeps the fixture honest.
+  Layer.suspend(() =>
+    env.DISCORD_BOT_TOKEN ? Judge.everythingAnswerable : Judge.stub
+  ),
   QuestionStore.stub
 );
 
