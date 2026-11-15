@@ -30,6 +30,7 @@ import {
   FunnelIcon,
   PlusIcon,
 } from "@heroicons/react/24/outline";
+import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 
 interface TablePageProps<
@@ -40,6 +41,8 @@ interface TablePageProps<
   readonly title: string;
   /** Secondary text beside the heading. */
   readonly subtitle?: string;
+  /** Compact strip under the heading row, still in the page header. */
+  readonly summary?: ReactNode;
   readonly data: Row[];
   readonly columns: TableColumn<Row>[];
   /** Searchable/filterable fields. Declare `as const` so keys infer. */
@@ -54,6 +57,7 @@ export const TableComponent = <
 >({
   title,
   subtitle,
+  summary,
   data,
   columns,
   fieldDefs,
@@ -75,27 +79,30 @@ export const TableComponent = <
       height="auto"
       header={
         <LayoutHeader hasDivider>
-          <HStack gap={2} vAlign="center" paddingInline={6} paddingBlock={3}>
-            <StackItem size="fill">
-              <HStack gap={3} vAlign="center">
-                <Heading level={1}>{title}</Heading>
-                {subtitle === undefined ? null : (
-                  <Text type="supporting">{subtitle}</Text>
-                )}
-              </HStack>
-            </StackItem>
-            <IconButton
-              label="Filter"
-              icon={<Icon icon={FunnelIcon} size="sm" />}
-              variant="ghost"
-            />
-            <IconButton
-              label="Download"
-              icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
-              variant="ghost"
-            />
-            <Button label="Add" icon={<Icon icon={PlusIcon} size="sm" />} />
-          </HStack>
+          <VStack gap={2} paddingInline={6} paddingBlock={3}>
+            <HStack gap={2} vAlign="center">
+              <StackItem size="fill">
+                <HStack gap={3} vAlign="center" wrap="wrap">
+                  <Heading level={1}>{title}</Heading>
+                  {subtitle === undefined ? null : (
+                    <Text type="supporting">{subtitle}</Text>
+                  )}
+                </HStack>
+              </StackItem>
+              <IconButton
+                label="Filter"
+                icon={<Icon icon={FunnelIcon} size="sm" />}
+                variant="ghost"
+              />
+              <IconButton
+                label="Download"
+                icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
+                variant="ghost"
+              />
+              <Button label="Add" icon={<Icon icon={PlusIcon} size="sm" />} />
+            </HStack>
+            {summary}
+          </VStack>
         </LayoutHeader>
       }
       content={

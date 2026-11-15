@@ -17,7 +17,11 @@ const row: QuestionsRow = {
 };
 
 const reply: QuestionsReply = {
-  contributorStats: { meanResponses: 2, plusOneSd: 4 },
+  contributorStats: {
+    medianResponses: 2,
+    plusOneSd: 4,
+    topContributors: [{ avatarUrl: null, name: "ana", responses: 3 }],
+  },
   failedChannels: [{ name: "effect-chat", reason: "GET /x returned 401" }],
   questions: [row],
 };
@@ -45,8 +49,9 @@ describe("questions machine", () => {
     const snapshot = await waitFor(actor, (s) => s.matches("loaded"), timeout);
 
     expect(snapshot.context.contributorStats).toStrictEqual({
-      meanResponses: 2,
+      medianResponses: 2,
       plusOneSd: 4,
+      topContributors: [{ avatarUrl: null, name: "ana", responses: 3 }],
     });
   });
 

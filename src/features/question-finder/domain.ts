@@ -7,6 +7,10 @@ export const DiscordMessage = Schema.Struct({
   id: Schema.String,
   threadId: Schema.String,
   authorName: Schema.String,
+  /** Discord marks bot and webhook accounts; they are not counted as contributors. */
+  authorIsBot: Schema.Boolean,
+  /** CDN image URL of the author's avatar, or `null` when Discord gave no avatar hash. */
+  authorAvatarUrl: Schema.NullOr(Schema.String),
   content: Schema.String,
   replyCount: Schema.Number,
   createdAt: Schema.Date,
@@ -56,12 +60,22 @@ export interface FailedChannel {
   readonly reason: string;
 }
 
+/** One person's responses in a Project. Plain data. */
+export interface Contributor {
+  readonly name: string;
+  readonly responses: number;
+  /** Image URL from their most recent message, or `null` when they have none. */
+  readonly avatarUrl: string | null;
+}
+
 /** How much each contributor has written in a Project, as plain numbers. */
 export interface ContributorStats {
-  /** Mean responses per contributor, unrounded. */
-  readonly meanResponses: number;
+  /** Median responses per contributor, unrounded. */
+  readonly medianResponses: number;
   /** The smallest whole number of responses at or above mean + 1 standard deviation. */
   readonly plusOneSd: number;
+  /** The five with the most responses, most first; ties by name A to Z. */
+  readonly topContributors: readonly Contributor[];
 }
 
 /** What the server function replies with. Plain data: failures are not thrown. */
@@ -72,25 +86,38 @@ export interface QuestionsReply {
   readonly contributorStats: ContributorStats | null;
 }
 
-/** `counts` holds one entry per contributor: how many responses they wrote. */
+const TOP_CONTRIBUTORS = 5;
+
+const medianOf = (sorted: readonly number[]): number => {
+  const middle = Math.floor(sorted.length / 2);
+
+  return sorted.length % 2 === 1
+    ? (sorted[middle] ?? 0)
+    : ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2;
+};
+
 export const contributorStats = (
-  counts: readonly number[]
+  contributors: readonly Contributor[]
 ): ContributorStats | null => {
-  if (counts.length === 0) {
+  if (contributors.length === 0) {
     return null;
   }
 
-  const meanResponses =
-    counts.reduce((sum, count) => sum + count, 0) / counts.length;
+  const counts = contributors.map(({ responses }) => responses);
+  const mean = counts.reduce((sum, count) => sum + count, 0) / counts.length;
 
   // Population SD: the contributors are everyone read, not a sample of them.
   const variance =
-    counts.reduce((sum, count) => sum + (count - meanResponses) ** 2, 0) /
-    counts.length;
+    counts.reduce((sum, count) => sum + (count - mean) ** 2, 0) / counts.length;
 
   return {
-    meanResponses,
-    plusOneSd: Math.ceil(meanResponses + Math.sqrt(variance)),
+    medianResponses: medianOf(counts.toSorted((a, b) => a - b)),
+    plusOneSd: Math.ceil(mean + Math.sqrt(variance)),
+    topContributors: contributors
+      .toSorted(
+        (a, b) => b.responses - a.responses || a.name.localeCompare(b.name)
+      )
+      .slice(0, TOP_CONTRIBUTORS),
   };
 };
 

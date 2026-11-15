@@ -9,6 +9,12 @@ export interface WireMessage {
   readonly content: string;
   /** Display name of the author; "ada" when left out. */
   readonly author?: string;
+  /** The author's user id; `user-{author}` when left out. */
+  readonly authorId?: string;
+  /** The author's avatar hash; `null` is the wire's "no custom avatar", left out sends no field. */
+  readonly avatar?: string | null;
+  /** The author is a bot or webhook: the wire sends `author.bot: true`. */
+  readonly bot?: boolean;
 }
 
 /** A forum post as the wire serves it: a thread plus its first message. */
@@ -19,6 +25,12 @@ export interface WirePost {
   readonly content: string;
   /** Display name of the first message's author; "ada" when left out. */
   readonly author?: string;
+  /** The first message author's user id; `user-{author}` when left out. */
+  readonly authorId?: string;
+  /** The first message author's avatar hash, as on `WireMessage`. */
+  readonly avatar?: string | null;
+  /** The first message's author is a bot or webhook. */
+  readonly bot?: boolean;
   /** The thread's `message_count`. */
   readonly replyCount?: number;
   /** The wire lists the post but returns no first message for it. */
@@ -64,14 +76,23 @@ const raw = (
   channelId: string,
   id: string,
   content: string,
-  author: string
-) => ({
-  author: { username: author },
-  channel_id: channelId,
-  content,
-  id,
-  timestamp: "2026-08-01T00:00:00.000+00:00",
-});
+  who: Pick<WireMessage, "author" | "authorId" | "avatar" | "bot">
+) => {
+  const username = who.author ?? "ada";
+
+  return {
+    author: {
+      avatar: who.avatar,
+      bot: who.bot === true ? true : undefined,
+      id: who.authorId ?? `user-${username}`,
+      username,
+    },
+    channel_id: channelId,
+    content,
+    id,
+    timestamp: "2026-08-01T00:00:00.000+00:00",
+  };
+};
 
 const rawPost = (forumId: string, post: WirePost) => ({
   guild_id: WIRE_GUILD,
@@ -175,9 +196,7 @@ export const fakeDiscord = ({
         Response.json({
           first_messages: newest
             .filter((post) => post.withoutFirstMessage !== true)
-            .map((post) =>
-              raw(post.id, post.id, post.content, post.author ?? "ada")
-            ),
+            .map((post) => raw(post.id, post.id, post.content, post)),
           has_more: offset + pageSize < newestFirst.length,
           members: [],
           threads: newest.map((post) => rawPost(id, post)),
@@ -192,7 +211,7 @@ export const fakeDiscord = ({
       return Promise.resolve(
         Response.json(
           (replies[id] ?? []).map((author, index) =>
-            raw(id, `${id}-reply-${index}`, "Covered in a post.", author)
+            raw(id, `${id}-reply-${index}`, "Covered in a post.", { author })
           )
         )
       );
@@ -216,9 +235,7 @@ export const fakeDiscord = ({
     return Promise.resolve(
       Response.json(
         page
-          .map((message) =>
-            raw(id, message.id, message.content, message.author ?? "ada")
-          )
+          .map((message) => raw(id, message.id, message.content, message))
           .toReversed()
       )
     );

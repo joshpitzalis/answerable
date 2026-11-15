@@ -44,8 +44,12 @@ export const fetchNewMessages = (input: {
 
     // Recorded as soon as they are read: a later step failing leaves the cursor
     // behind, and the re-read must not count them twice.
+    // Bot and webhook accounts are not contributors; their messages can still be questions.
     yield* Contributions.use((contributions) =>
-      contributions.record(input.project.slug, messages)
+      contributions.record(
+        input.project.slug,
+        messages.filter((message) => !message.authorIsBot)
+      )
     );
 
     return messages;
