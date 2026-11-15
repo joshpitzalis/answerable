@@ -1,22 +1,5 @@
 import { Schema } from "effect";
 
-export type Snowflake = string;
-
-// MESSAGES
-
-export const DiscordMessage = Schema.Struct({
-  id: Schema.String,
-  threadId: Schema.String,
-  authorName: Schema.String,
-  content: Schema.String,
-  replyCount: Schema.Number,
-  createdAt: Schema.Date,
-  /** Deep link to the message in the Discord client. */
-  url: Schema.String,
-});
-
-export type DiscordMessage = Schema.Schema.Type<typeof DiscordMessage>;
-
 // RAW MESSAGES
 
 const RawMessage = Schema.Struct({

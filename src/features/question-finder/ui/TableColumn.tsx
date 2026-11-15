@@ -4,7 +4,7 @@ import type { TableColumn } from "@astryxdesign/core/Table";
 import { pixel, proportional } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 
-import type { QuestionsRow } from "#/features/question-finder/schema";
+import type { QuestionsRow } from "#/features/question-finder/domain";
 import { humanizeDate } from "#/lib/utils/format-date.ts";
 
 export const columns: TableColumn<QuestionsRow>[] = [

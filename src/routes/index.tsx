@@ -4,8 +4,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Suspense } from "react";
 
 import { TableComponent } from "#/components/Table.tsx";
-import { questionsAtom } from "#/features/question-finder/atom.ts";
-import { columns } from "#/features/question-finder/components/TableColumn.tsx";
+import { questionsAtom } from "#/features/question-finder/ui/questionsAtom.ts";
+import { columns } from "#/features/question-finder/ui/TableColumn.tsx";
 
 const fieldDefs = [
   { key: "name", type: "string", label: "Name" },

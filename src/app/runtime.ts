@@ -1,7 +1,11 @@
 import { env } from "cloudflare:workers";
 import { Layer, ManagedRuntime } from "effect";
 
-import { Corpus, Cursors, Discord, Judge, QuestionStore } from "./services";
+import { Corpus } from "@/features/question-finder/services/corpus";
+import { Cursors } from "@/features/question-finder/services/cursors";
+import { Discord } from "@/features/question-finder/services/discord";
+import { Judge } from "@/features/question-finder/services/judge";
+import { QuestionStore } from "@/features/question-finder/services/question-store";
 
 /**
  * Worker-only. Nothing may import this at module scope from a file the client

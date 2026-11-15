@@ -1,18 +1,14 @@
-import { createServerFn } from "@tanstack/react-start";
 import { Effect } from "effect";
 
-import { CHANNELS, ME } from "./lib/constants";
-import { toRow } from "./lib/DTOs";
-import { looksLikeAQuestion } from "./lib/utils";
-import { runtime } from "./runtime";
-import type { QuestionsRow } from "./schema";
-import { Corpus, Cursors, Discord, Judge, QuestionStore } from "./services";
+import { looksLikeAQuestion, toRow } from "../domain";
+import { CHANNELS, ME } from "../lib/config";
+import { Corpus } from "../services/corpus";
+import { Cursors } from "../services/cursors";
+import { Discord } from "../services/discord";
+import { Judge } from "../services/judge";
+import { QuestionStore } from "../services/question-store";
 
 /**
- * ─── THE SEAM ────────────────────────────────────────────────────────────────
- *
- * Below this line is the Worker. On the client this call collapses into a fetch.
- *
  * Surface Discord questions that are BOTH unanswered by me and answerable from
  * something I've already written.
  *
@@ -87,19 +83,3 @@ export const harvestQuestions = Effect.fn("harvestQuestions")(function* () {
     { concurrency: 3, discard: true }
   );
 });
-
-/**
- * The read side.
- *
- * ponytail: harvests inline first, because nothing else triggers it yet. Delete
- * that line the day a cron Worker calls `harvestQuestions` on a schedule — the
- * `listOpen` read below is already the final shape.
- */
-export const listQuestions = createServerFn({ method: "GET" }).handler(
-  (): Promise<QuestionsRow[]> =>
-    runtime.runPromise(
-      harvestQuestions().pipe(
-        Effect.andThen(QuestionStore.use((store) => store.listOpen()))
-      )
-    )
-);

@@ -1,7 +1,5 @@
-import type {
-  DiscordMessage,
-  RawMessage,
-} from "@/features/question-finder/services/discord/schema";
+import type { DiscordMessage } from "@/features/question-finder/domain";
+import type { RawMessage } from "@/features/question-finder/services/discord/schema";
 
 import { GUILD } from "./constants";
 

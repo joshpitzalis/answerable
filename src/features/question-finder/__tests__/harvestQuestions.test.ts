@@ -1,10 +1,14 @@
 import { Effect, Layer, Option } from "effect";
 import { describe, expect, it } from "vitest";
 
-import { harvestQuestions } from "../server";
-import { Corpus, Cursors, Discord, Judge, QuestionStore } from "../services";
+import type { DiscordMessage } from "../domain";
+import { Corpus } from "../services/corpus";
+import { Cursors } from "../services/cursors";
+import { Discord } from "../services/discord";
 import { DiscordFailed } from "../services/discord/lib/errors";
-import type { DiscordMessage } from "../services/discord/schema";
+import { Judge } from "../services/judge";
+import { QuestionStore } from "../services/question-store";
+import { harvestQuestions } from "../workflows/harvestQuestions";
 
 const CHANNEL = "1125094089281511474";
 const THREAD_I_ANSWERED = "300";

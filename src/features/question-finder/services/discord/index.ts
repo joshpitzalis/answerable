@@ -1,15 +1,13 @@
 import { Context, Effect, Layer, Option } from "effect";
 
-import { toMessage } from "@/features/question-finder/services/discord/lib/DTOs";
-import type { DiscordFailed } from "@/features/question-finder/services/discord/lib/errors";
 import type {
   DiscordMessage,
   Snowflake,
-} from "@/features/question-finder/services/discord/schema";
+} from "@/features/question-finder/domain";
+import { toMessage } from "@/features/question-finder/services/discord/lib/DTOs";
+import type { DiscordFailed } from "@/features/question-finder/services/discord/lib/errors";
 
 import { fixtureFetch, listMessages } from "./handlers";
-
-/** Discord snowflake. Sorts lexicographically by time, which is why it works as a cursor. */
 
 const make = (fetch: typeof globalThis.fetch, token: string) => ({
   messagesSince: (channelId: string, cursor: Option.Option<Snowflake>) =>
