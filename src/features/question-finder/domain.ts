@@ -62,6 +62,43 @@ export interface FailedChannel {
   readonly reason: string;
 }
 
+/** The steps of one Channel's Harvest, in order. */
+export type HarvestStep = "fetching" | "checkingReplies" | "judging" | "saving";
+
+/**
+ * What one Channel's Harvest did, as plain counts: each is how many were left
+ * after that step. A failed Channel keeps the counts it reached. Server logs
+ * only; never sent to the browser.
+ */
+export interface ChannelFunnel {
+  readonly channel: string;
+  /** Messages read from Discord (posts, for a forum Channel). */
+  readonly read: number;
+  /** Of those, how many looked like a question. */
+  readonly questions: number;
+  /** Of those, how many the owner has not already replied to. */
+  readonly unanswered: number;
+  /** Of those, how many the Judge kept, and so saved. */
+  readonly kept: number;
+  /** The step and reason when the Channel failed, else `null`. */
+  readonly failure: {
+    readonly step: HarvestStep;
+    readonly reason: string;
+  } | null;
+}
+
+/** What a Project Harvest reports: the failed Channels and a funnel per Channel. */
+export interface HarvestReport {
+  readonly failed: FailedChannel[];
+  readonly funnels: ChannelFunnel[];
+}
+
+/** One log line for a Channel's funnel. */
+export const funnelLine = (slug: string, funnel: ChannelFunnel): string =>
+  funnel.failure === null
+    ? `harvest ${slug}/${funnel.channel} read=${funnel.read} questions=${funnel.questions} unanswered=${funnel.unanswered} kept=${funnel.kept}`
+    : `harvest ${slug}/${funnel.channel} failed in ${funnel.failure.step}: ${funnel.failure.reason}`;
+
 /** One person's responses in a Project. Plain data. */
 export interface Contributor {
   readonly name: string;

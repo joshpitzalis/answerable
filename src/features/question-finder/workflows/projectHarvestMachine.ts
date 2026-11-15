@@ -1,13 +1,13 @@
 import type { ManagedRuntime } from "effect";
 import { setup, types } from "xstate";
 
-import type { FailedChannel, Project } from "../domain";
+import type { ChannelFunnel, HarvestReport, Project } from "../domain";
 import { createChannelHarvestMachine } from "./channelHarvestMachine";
 import type { HarvestServices } from "./harvestSteps";
 
 /**
  * One child actor per Channel, all running at once. Done when every child has
- * finished; the output is the Channels that failed.
+ * finished; the output is the Channels that failed and a funnel per Channel.
  */
 export const createProjectHarvestMachine = (
   runtime: ManagedRuntime.ManagedRuntime<HarvestServices, never>
@@ -20,16 +20,16 @@ export const createProjectHarvestMachine = (
       context: types<{
         project: Project;
         pending: number;
-        failed: FailedChannel[];
+        funnels: ChannelFunnel[];
       }>(),
-      events: { "channel.finished": types<{ output: FailedChannel | null }>() },
-      output: types<FailedChannel[]>(),
+      events: { "channel.finished": types<{ output: ChannelFunnel }>() },
+      output: types<HarvestReport>(),
     },
   }).createMachine({
     context: ({ input }) => ({
       project: input,
       pending: input.channels.length,
-      failed: [],
+      funnels: [],
     }),
     initial: "running",
     states: {
@@ -57,10 +57,7 @@ export const createProjectHarvestMachine = (
             return {
               context: {
                 pending,
-                failed:
-                  event.output === null
-                    ? context.failed
-                    : [...context.failed, event.output],
+                funnels: [...context.funnels, event.output],
               },
             };
           },
@@ -68,6 +65,18 @@ export const createProjectHarvestMachine = (
       },
       finished: { type: "final" },
     },
-    output: ({ context }) => context.failed,
+    // Channels finish in any order; report them in the Project's order.
+    output: ({ context }) => {
+      const funnels = context.project.channels.flatMap(({ name }) =>
+        context.funnels.filter((funnel) => funnel.channel === name)
+      );
+
+      return {
+        failed: funnels.flatMap(({ channel, failure }) =>
+          failure === null ? [] : [{ name: channel, reason: failure.reason }]
+        ),
+        funnels,
+      };
+    },
   });
 };
