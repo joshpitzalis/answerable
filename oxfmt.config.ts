@@ -11,5 +11,12 @@ export default defineConfig({
     "tools/oxlint/anti-slop/**",
     ".stryker-tmp/**",
     "reports/**",
+    // Course material kept beside the app; it is not app code.
+    "assets/**",
+    "lessons/**",
+    "reference/**",
+    "MISSION.md",
+    "NOTES.md",
+    "RESOURCES.md",
   ],
 });

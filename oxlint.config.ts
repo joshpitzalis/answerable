@@ -35,6 +35,10 @@ export default defineConfig({
     ".roo/**",
     ".windsurf/**",
     "tools/oxlint/anti-slop/**",
+    // Course material kept beside the app; it is not app code.
+    "assets/**",
+    "lessons/**",
+    "reference/**",
     ".stryker-tmp/**",
     "reports/**",
   ],
