@@ -7,6 +7,17 @@ import { test } from "node:test";
 
 import { extractPrivateValues, findLeaks, run } from "./check-private.mjs";
 
+// Git hooks export repository-local variables that override cwd in child Git calls.
+const localVariables = execFileSync("git", ["rev-parse", "--local-env-vars"], {
+  encoding: "utf-8",
+})
+  .trim()
+  .split("\n");
+
+for (const name of localVariables) {
+  Reflect.deleteProperty(process.env, name);
+}
+
 const EXAMPLE = `
 export const A = { serverId: "example-server-id", channels: [{ id: "example-channel-1", name: "help" }], ownerName: "example-owner" };
 `;
