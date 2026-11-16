@@ -24,6 +24,7 @@ const harvestQuestions = async (...args: Parameters<typeof harvestReport>) => {
 };
 
 const XSTATE: Project = {
+  id: "xstate",
   channels: [
     { id: "x1", name: "xstate-help" },
     { id: "x2", name: "xstate-chat" },

@@ -31,6 +31,7 @@ export type Channel = Schema.Schema.Type<typeof Channel>;
 
 /** A library community: one Discord server, the Channels read in it, and who "I" am there. */
 export interface Project {
+  readonly id: string;
   readonly slug: string;
   readonly label: string;
   readonly serverId: string;

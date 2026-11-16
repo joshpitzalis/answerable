@@ -7,6 +7,7 @@ import { findProject, STUB_PROJECTS } from "../projects.utils";
 describe(findProject, () => {
   it("finds the Effect Project by slug", () => {
     expect(findProject("effect", STUB_PROJECTS)).toStrictEqual({
+      id: "effect",
       channels: [{ id: "1125094089281511474", name: "effect-help" }],
       label: "Effect",
       ownerName: "josh",

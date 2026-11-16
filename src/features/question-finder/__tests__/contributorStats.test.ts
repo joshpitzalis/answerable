@@ -14,6 +14,7 @@ import type { WireMessage } from "./discordWire.test-utils";
 import { fakeDiscord } from "./discordWire.test-utils";
 
 const XSTATE: Project = {
+  id: "xstate",
   channels: [
     { id: "x1", name: "xstate-help" },
     { id: "x2", name: "xstate-chat" },

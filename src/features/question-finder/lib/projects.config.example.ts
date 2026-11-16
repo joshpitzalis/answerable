@@ -10,6 +10,7 @@ import type { Project } from "../domain";
  * these ids, so the XState ones are invented on purpose.
  */
 export const EFFECT_PROJECT: Project = {
+  id: "effect",
   slug: "effect",
   label: "Effect",
   serverId: "795981131316985866",
@@ -19,6 +20,7 @@ export const EFFECT_PROJECT: Project = {
 };
 
 export const XSTATE_PROJECT: Project = {
+  id: "xstate",
   slug: "xstate",
   label: "XState",
   serverId: "xstate-placeholder-server",
