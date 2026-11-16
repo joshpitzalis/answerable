@@ -19,89 +19,114 @@ import {
 } from "./harvest.test-utils";
 
 describe("bounded Harvest deadlines", () => {
-  it("aborts unfinished Discord IO at twenty seconds without advancing persisted progress", async () => {
-    const project = textProject("deadline-wire");
-    const stub = projectHarvestStub(env.PROJECT_HARVEST, project, "live");
+  it.each(["headers", "body"])(
+    "aborts unfinished Discord %s at twenty seconds without advancing persisted progress",
+    async (phase) => {
+      const project = textProject(`deadline-wire-${phase}`);
+      const stub = projectHarvestStub(env.PROJECT_HARVEST, project, "live");
 
-    const started = Effect.runSync(
-      Deferred.make<AbortSignal | null | undefined>()
-    );
+      const started = Effect.runSync(
+        Deferred.make<AbortSignal | null | undefined>()
+      );
 
-    const paths: string[] = [];
+      const paths: string[] = [];
 
-    const fetch: typeof globalThis.fetch = (input, init) => {
-      const path = new URL(String(input)).pathname;
-      paths.push(path);
+      const fetch: typeof globalThis.fetch = (input, init) => {
+        const path = new URL(String(input)).pathname;
+        paths.push(path);
 
-      if (path.endsWith("/applications/@me")) {
-        return Promise.resolve(
-          Response.json({ bot: { id: "600" }, flags: 262_144 })
-        );
-      }
+        if (path.endsWith("/applications/@me")) {
+          return Promise.resolve(
+            Response.json({ bot: { id: "600" }, flags: 262_144 })
+          );
+        }
 
-      if (path.endsWith("/channels/800")) {
-        return Promise.resolve(
-          Response.json({
-            id: "800",
-            guild_id: "700",
-            type: 0,
-            permission_overwrites: [],
-          })
-        );
-      }
+        if (path.endsWith("/channels/800")) {
+          return Promise.resolve(
+            Response.json({
+              id: "800",
+              guild_id: "700",
+              type: 0,
+              permission_overwrites: [],
+            })
+          );
+        }
 
-      if (path.endsWith("/guilds/700")) {
-        return Promise.resolve(
-          Response.json({
-            owner_id: "500",
-            roles: [{ id: "700", permissions: "66560" }],
-          })
-        );
-      }
+        if (path.endsWith("/guilds/700")) {
+          return Promise.resolve(
+            Response.json({
+              owner_id: "500",
+              roles: [{ id: "700", permissions: "66560" }],
+            })
+          );
+        }
 
-      if (path.endsWith("/members/600")) {
-        return Promise.resolve(Response.json({ roles: [] }));
-      }
+        if (path.endsWith("/members/600")) {
+          return Promise.resolve(Response.json({ roles: [] }));
+        }
 
-      Effect.runSync(Deferred.succeed(started, init?.signal));
+        if (phase === "body") {
+          return Promise.resolve(
+            new Response(
+              new ReadableStream(
+                {
+                  start(controller) {
+                    init?.signal?.addEventListener(
+                      "abort",
+                      () => controller.error(new Error("aborted")),
+                      { once: true }
+                    );
+                  },
+                  pull() {
+                    Effect.runSync(Deferred.succeed(started, init?.signal));
+                  },
+                },
+                { highWaterMark: 0 }
+              )
+            )
+          );
+        }
 
-      return Effect.runPromise(Effect.never, {
-        signal: init?.signal ?? undefined,
-      });
-    };
+        Effect.runSync(Deferred.succeed(started, init?.signal));
 
-    const clock = new SimulatedClock();
-    await withHarvestRuntime(
-      stub,
-      Discord.layer("invented", fetch),
-      Judge.everythingAnswerable,
-      async (runtime) => {
-        const pending = harvestStoredProject(runtime, project, "live", clock);
-        const signal = await Effect.runPromise(Deferred.await(started));
-        clock.increment(20_000);
-        const reply = await pending;
-        expect(signal?.aborted).toBeTruthy();
-        expect(paths).toHaveLength(5);
-        expect(reply.harvest).toMatchObject({
-          status: "working",
-          lastCompleteSuccess: null,
+        return Effect.runPromise(Effect.never, {
+          signal: init?.signal ?? undefined,
         });
-        await expect(
-          runtime.runPromise(ProjectStorage.use((store) => store.messages))
-        ).resolves.toStrictEqual([]);
-      }
-    );
-    await evictDurableObject(stub);
+      };
 
-    const recovered = await withHarvestRuntime(
-      stub,
-      discordPage([sourceMessage("101")]),
-      Judge.everythingAnswerable,
-      (runtime) => harvestStoredProject(runtime, project, "live")
-    );
+      const clock = new SimulatedClock();
+      await withHarvestRuntime(
+        stub,
+        Discord.layer("invented", fetch),
+        Judge.everythingAnswerable,
+        async (runtime) => {
+          const pending = harvestStoredProject(runtime, project, "live", clock);
+          const signal = await Effect.runPromise(Deferred.await(started));
+          clock.increment(20_000);
+          const reply = await pending;
+          expect(signal?.aborted).toBeTruthy();
+          expect(paths).toHaveLength(5);
+          expect(reply.harvest).toMatchObject({
+            status: "working",
+            lastCompleteSuccess: null,
+          });
+          await expect(
+            runtime.runPromise(ProjectStorage.use((store) => store.messages))
+          ).resolves.toStrictEqual([]);
+        }
+      );
+      await evictDurableObject(stub);
 
-    expect(recovered.questions.map((row) => row.id)).toStrictEqual(["101"]);
-  });
+      const recovered = await withHarvestRuntime(
+        stub,
+        discordPage([sourceMessage("101")]),
+        Judge.everythingAnswerable,
+        (runtime) => harvestStoredProject(runtime, project, "live")
+      );
+
+      expect(recovered.questions.map((row) => row.id)).toStrictEqual(["101"]);
+    }
+  );
 
   it("bounds concurrent judgments, aborts them, and resumes twenty saved candidates without Discord", async () => {
     const project = textProject("deadline-judge");

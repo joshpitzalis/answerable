@@ -36,34 +36,42 @@ export const discordGet = Effect.fn("Discord.get")(function* (
   token: string,
   fetch: typeof globalThis.fetch
 ) {
-  const response = yield* Effect.tryPromise({
-    try: (signal) =>
-      fetch(`${API}${path}`, {
-        signal,
-        headers: { Authorization: token },
+  return yield* Effect.acquireUseRelease(
+    Effect.sync(() => new AbortController()),
+    (controller) =>
+      Effect.gen(function* () {
+        const response = yield* Effect.tryPromise({
+          try: () =>
+            fetch(`${API}${path}`, {
+              signal: controller.signal,
+              headers: { Authorization: token },
+            }),
+          catch: (error) => new DiscordFailed({ reason: String(error) }),
+        });
+
+        if (!response.ok) {
+          const delay =
+            response.status === RATE_LIMITED
+              ? yield* retryAfterMs(response)
+              : Option.none();
+
+          return yield* Option.match(delay, {
+            onNone: () =>
+              Effect.fail(
+                new DiscordFailed({
+                  reason: `GET ${path} returned ${response.status}`,
+                })
+              ),
+            onSome: (ms) =>
+              Effect.fail(new DiscordRateLimited({ retryAfterMs: ms })),
+          });
+        }
+
+        return yield* Effect.tryPromise({
+          try: () => response.json(),
+          catch: (error) => new DiscordFailed({ reason: String(error) }),
+        });
       }),
-    catch: (error) => new DiscordFailed({ reason: String(error) }),
-  });
-
-  if (!response.ok) {
-    const delay =
-      response.status === RATE_LIMITED
-        ? yield* retryAfterMs(response)
-        : Option.none();
-
-    return yield* Option.match(delay, {
-      onNone: () =>
-        Effect.fail(
-          new DiscordFailed({
-            reason: `GET ${path} returned ${response.status}`,
-          })
-        ),
-      onSome: (ms) => Effect.fail(new DiscordRateLimited({ retryAfterMs: ms })),
-    });
-  }
-
-  return yield* Effect.tryPromise({
-    try: () => response.json(),
-    catch: (error) => new DiscordFailed({ reason: String(error) }),
-  });
+    (controller) => Effect.sync(() => controller.abort())
+  );
 });
