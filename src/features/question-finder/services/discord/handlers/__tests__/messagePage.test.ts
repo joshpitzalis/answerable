@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { DiscordFailed } from "../../lib/errors";
-import { messagePage } from "../messagePage";
+import { sourcePage as messagePage } from "../sourcePage";
 
 const request = {
   channelId: "800",

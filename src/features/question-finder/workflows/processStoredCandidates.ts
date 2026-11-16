@@ -41,6 +41,10 @@ export const processCandidate = (
 
     const message = {
       ...candidate.message,
+      content:
+        candidate.threadTitle === null || candidate.threadTitle === undefined
+          ? candidate.message.content
+          : `${candidate.threadTitle}\n\n${candidate.message.content}`,
       createdAt: new Date(candidate.message.createdAt),
     };
 

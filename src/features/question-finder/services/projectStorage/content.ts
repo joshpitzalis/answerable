@@ -73,7 +73,7 @@ const fingerprint = (message: SourceMessage): string =>
     message.url,
   ]);
 
-const ingestMessage = (
+export const ingestMessage = (
   sql: SqlStorage,
   message: SourceMessage,
   page: PageIngestion

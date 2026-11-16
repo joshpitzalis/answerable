@@ -13,9 +13,9 @@ Issues #17/#18 add `ProjectHarvest.harvest(project)`, `requestHarvest(project)` 
 
 ## Discord boundary and continuation handoff
 
-`Discord.messagePage` validates message and author identity, timestamps, page size and Channel membership before returning anything. `threadId` is nullable: an ordinary message ID never stands in for a thread ID.
+`Discord.sourcePage` validates message and author identity, timestamps, page size and Channel membership before returning anything. It returns a text page, public-thread discovery page, or forum starter. `threadId` is nullable: an ordinary message ID never stands in for a thread ID.
 
-The text adapter makes four sequential metadata calls (application, Channel, guild, bot member), then one message-page call. A batch acquires exactly one such page at most, staying within five actual Discord calls. It checks Message Content Intent and effective View Channel/Read Message History permissions, including overwrites. #19 must count discovery/starter/reply requests against that same bound; a method invocation is not necessarily one wire request. A successful empty response alone is not proof of readable content.
+The adapter makes four sequential metadata calls (application, Channel, guild, bot member), then one data call. A batch acquires exactly one text page, discovery page or starter at most, staying within five actual Discord calls. It checks Message Content Intent and effective View Channel/Read Message History permissions, including overwrites. #20 must count reply requests against that same bound; a method invocation is not necessarily one wire request. A successful empty response alone is not proof of readable content.
 
 ## Bounded work contract (#18)
 
@@ -26,6 +26,16 @@ The text adapter makes four sequential metadata calls (application, Channel, gui
 The bounded runner does not schedule itself. #21 should invoke the same batch from alarms and use the saved status to continue work; it owns concurrency, leases, cooldowns and retry deadlines. #19 extends the persisted stream/discovery selection instead of introducing a parallel collector. Currently one invocation may perform less than its maximum allowance; no extra IO is required merely to consume the budget.
 
 The tests use real local Durable Object SQLite and injected Discord/Judge services. They cover eviction, atomic rollback, duplicate and rejected-message retention, same-name authors, pending retry, stale-result refusal and a native RPC round trip with the committed fixture. No real Discord calls are needed.
+
+## Forum discovery contract (#19)
+
+The same acquisition turn performs active discovery, public archive pages, then pending starters. `forum_scans` persists the generation, archive floor, captured upper timestamp and exclusive cursor; `discord_threads` persists canonical thread/starter identity, parent, title, archive state and pending starter work. The first active list admits its latest 50 distinct public posts. Later active lists admit every new post since activation and refresh already tracked posts. Archive traversal starts at activation and subsequently overlaps the previous captured upper timestamp, so a post archived between checks remains discoverable without historical archive backfill.
+
+`forumRequest(channelId, generation)` selects the next saved phase. `saveThreadPage` atomically commits metadata/context invalidation and discovery continuation; it returns false when a timestamp cursor cannot advance. Boundary overlap retains sub-millisecond ties, and an unpageable repeated boundary fails visibly instead of skipping records. `saveForumStarter` atomically stores the raw message, its title context and the completed starter obligation. Missing/forbidden starters stay pending. Only completed archive traversal plus no pending starters completes the parent acquisition generation. A failed Channel does not block other Channels' turns.
+
+Forum title and body remain separate in storage. `pending` joins the starter's current title; the existing processor derives title plus body for judgement/display. The raw starter contributes once. Title changes invalidate processing in the metadata transaction, preserving the old saved question until replacement commits.
+
+For #20, extend the same `SourcePage`/`ForumRequest` boundary and acquisition selection for thread reply work. `discord_threads` is the durable public-thread registry, but it currently covers forum/media parents only. Text pages preserve actual attached `threadId`; #20 must add discovery/continuation for those accessible public text threads. Replies must join the same raw message store and invalidate starter/message context atomically, incorporating title and reply content/author/deletion inputs instead of overwriting the title-only revision independently. Do not mark a parent generation complete until its reply obligations also finish. `finishDiscovery` is the current completion seam to extend. Legacy fixture acquisition remains separate until the route wiring ticket.
 
 ## Reprocessing contract (#22)
 

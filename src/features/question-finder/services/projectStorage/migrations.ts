@@ -39,6 +39,17 @@ export const projectMigrations = [
     process_turn INTEGER NOT NULL DEFAULT 0
   );
   INSERT INTO harvest_cycle (id) VALUES (1);`,
+  `CREATE TABLE discord_threads (
+    id TEXT PRIMARY KEY, parent_channel_id TEXT NOT NULL, title TEXT NOT NULL,
+    starter_id TEXT NOT NULL UNIQUE, archived INTEGER NOT NULL, archive_timestamp TEXT NOT NULL,
+    observed_at INTEGER NOT NULL, starter_pending INTEGER NOT NULL DEFAULT 1
+  );
+  CREATE INDEX pending_forum_starters ON discord_threads (parent_channel_id,starter_pending,length(id),id);
+  CREATE TABLE forum_scans (
+    channel_id TEXT PRIMARY KEY, generation INTEGER NOT NULL, active_done INTEGER NOT NULL,
+    archive_done INTEGER NOT NULL, before_timestamp TEXT, archive_floor TEXT NOT NULL,
+    scan_upper TEXT NOT NULL
+  );`,
 ];
 
 export const migrateProjectStorage = (

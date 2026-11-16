@@ -48,7 +48,7 @@ export const discordPage = (messages: readonly SourceMessage[]) =>
       messagesSince: () => Effect.die("Legacy acquisition must not run"),
       hasReplyFrom: () =>
         Effect.die("Standalone messages have no thread endpoint"),
-      messagePage: () => Effect.succeed(messages),
+      sourcePage: () => Effect.succeed(messages),
     })
   );
 
@@ -57,7 +57,7 @@ export const unavailableDiscord = Layer.succeed(
   Discord.of({
     messagesSince: () => Effect.die("Unexpected Discord call"),
     hasReplyFrom: () => Effect.die("Unexpected Discord call"),
-    messagePage: () =>
+    sourcePage: () =>
       Effect.die("Committed content must not be downloaded again"),
   })
 );

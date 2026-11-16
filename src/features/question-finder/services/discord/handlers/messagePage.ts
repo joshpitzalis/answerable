@@ -3,7 +3,6 @@ import { Effect, Schema } from "effect";
 import type { SourceMessage } from "../../../domain/harvest.values";
 import { DiscordFailed } from "../lib/errors";
 import { discordGet } from "./discordGet";
-import { requireMessageAccess } from "./readAccess";
 
 export interface MessagePageRequest {
   readonly channelId: string;
@@ -19,7 +18,7 @@ const Timestamp = Schema.String.check(
   Schema.makeFilter((value) => Number.isFinite(Date.parse(value)))
 );
 
-const RawContent = Schema.Struct({
+export const RawContent = Schema.Struct({
   id: DecimalId,
   channel_id: Schema.String,
   content: Schema.String,
@@ -41,17 +40,11 @@ const RawContent = Schema.Struct({
   ),
 });
 
-export const messagePage = Effect.fn("Discord.messagePage")(function* (
+export const readMessagePage = Effect.fn("Discord.readMessagePage")(function* (
   request: MessagePageRequest,
   token: string,
   fetch: typeof globalThis.fetch
 ) {
-  yield* requireMessageAccess(
-    request.parentChannelId,
-    request.serverId,
-    token,
-    fetch
-  );
   const query = new URLSearchParams({ limit: String(request.limit) });
 
   if (request.before !== null) {
@@ -83,26 +76,31 @@ export const messagePage = Effect.fn("Discord.messagePage")(function* (
     );
   }
 
-  return raw.map((message): SourceMessage => ({
-    id: message.id,
-    channelId: message.channel_id,
-    parentChannelId: request.parentChannelId,
-    threadId:
-      request.channelId === request.parentChannelId
-        ? (message.thread?.id ?? null)
-        : request.channelId,
-    authorId: message.author.id,
-    authorName: message.author.global_name ?? message.author.username,
-    authorAvatarUrl: message.author.avatar
-      ? `https://cdn.discordapp.com/avatars/${message.author.id}/${message.author.avatar}.png?size=64`
-      : null,
-    authorIsBot: message.author.bot === true,
-    authorIsWebhook: message.webhook_id !== undefined,
-    content: message.content,
-    createdAt: message.timestamp,
-    editedAt: message.edited_timestamp ?? null,
-    replyCount: message.thread?.message_count ?? 0,
-    isPost: false,
-    url: `https://discord.com/channels/${request.serverId}/${message.channel_id}/${message.id}`,
-  }));
+  return raw.map((message) => toSourceMessage(message, request));
+});
+
+export const toSourceMessage = (
+  message: typeof RawContent.Type,
+  request: MessagePageRequest
+): SourceMessage => ({
+  id: message.id,
+  channelId: message.channel_id,
+  parentChannelId: request.parentChannelId,
+  threadId:
+    request.channelId === request.parentChannelId
+      ? (message.thread?.id ?? null)
+      : request.channelId,
+  authorId: message.author.id,
+  authorName: message.author.global_name ?? message.author.username,
+  authorAvatarUrl: message.author.avatar
+    ? `https://cdn.discordapp.com/avatars/${message.author.id}/${message.author.avatar}.png?size=64`
+    : null,
+  authorIsBot: message.author.bot === true,
+  authorIsWebhook: message.webhook_id !== undefined,
+  content: message.content,
+  createdAt: message.timestamp,
+  editedAt: message.edited_timestamp ?? null,
+  replyCount: message.thread?.message_count ?? 0,
+  isPost: false,
+  url: `https://discord.com/channels/${request.serverId}/${message.channel_id}/${message.id}`,
 });

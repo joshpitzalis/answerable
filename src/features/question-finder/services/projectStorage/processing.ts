@@ -10,11 +10,19 @@ export const pendingCandidates = (
   limit: number
 ): ProcessingCandidate[] =>
   sql
-    .exec<MessageRow & { policy_revision: string; context_revision: string }>(
-      `SELECT messages.*, processing.policy_revision, processing.context_revision FROM messages
-    JOIN processing ON message_id = id WHERE completed = 0 AND deleted_at IS NULL
-    AND parent_channel_id IN (${channelIds.map(() => "?").join(",")})
-    ORDER BY length(id), id LIMIT ?`,
+    .exec<
+      MessageRow & {
+        policy_revision: string;
+        context_revision: string;
+        thread_title: string | null;
+      }
+    >(
+      `SELECT messages.*, processing.policy_revision, processing.context_revision, discord_threads.title AS thread_title FROM messages
+    JOIN processing ON message_id = messages.id
+    LEFT JOIN discord_threads ON discord_threads.starter_id=messages.id
+    WHERE completed = 0 AND deleted_at IS NULL
+    AND messages.parent_channel_id IN (${channelIds.map(() => "?").join(",")})
+    ORDER BY length(messages.id), messages.id LIMIT ?`,
       ...channelIds,
       limit
     )
@@ -23,6 +31,7 @@ export const pendingCandidates = (
       message: messageFromRow(row),
       policyRevision: row.policy_revision,
       contextRevision: row.context_revision,
+      threadTitle: row.thread_title,
     }));
 
 export const countPendingCandidates = (

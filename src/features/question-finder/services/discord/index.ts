@@ -14,7 +14,7 @@ import type {
   DiscordRateLimited,
 } from "#/features/question-finder/services/discord/lib/errors";
 
-import type { SourceMessage } from "../../domain/harvest.values";
+import type { SourcePage } from "../../domain/thread.values";
 import {
   fixtureFetch,
   isPostChannel,
@@ -22,8 +22,10 @@ import {
   listPosts,
   POST_PAGE,
 } from "./handlers";
-import { messagePage } from "./handlers/messagePage";
-import type { MessagePageRequest } from "./handlers/messagePage";
+import { sourcePage } from "./handlers/sourcePage";
+import type { SourcePageRequest } from "./handlers/sourcePage";
+
+export { DiscordFailed } from "./lib/errors";
 
 /** Snowflakes of different lengths still order by time: longer is newer. */
 const isNewer = (id: Snowflake, cursor: Snowflake) =>
@@ -102,8 +104,8 @@ const make = (fetch: typeof globalThis.fetch, token: string) => {
     );
 
   return {
-    messagePage: (request: MessagePageRequest) =>
-      messagePage(request, token, fetch),
+    sourcePage: (request: SourcePageRequest) =>
+      sourcePage(request, token, fetch),
     messagesSince: (
       channelId: string,
       cursor: Option.Option<Snowflake>,
@@ -133,12 +135,9 @@ const make = (fetch: typeof globalThis.fetch, token: string) => {
 export class Discord extends Context.Service<
   Discord,
   {
-    readonly messagePage: (
-      request: MessagePageRequest
-    ) => Effect.Effect<
-      readonly SourceMessage[],
-      DiscordFailed | DiscordRateLimited
-    >;
+    readonly sourcePage: (
+      request: SourcePageRequest
+    ) => Effect.Effect<SourcePage, DiscordFailed | DiscordRateLimited>;
     /** Messages newer than `cursor`, oldest first. `None` means "from the beginning". */
     readonly messagesSince: (
       channelId: string,

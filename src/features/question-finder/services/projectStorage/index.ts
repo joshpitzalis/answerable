@@ -9,9 +9,12 @@ import type {
   ProcessingCandidate,
   StoredMessage,
   StoredQuestionsReply,
+  SourceMessage,
 } from "../../domain/harvest.values";
+import type { ForumRequest, ThreadPage } from "../../domain/thread.values";
 import { ingestPage, readMessages } from "./content";
 import { beginCycle, claimAcquisition, claimProcessing } from "./cycle";
+import { nextForumRequest, saveForumStarter, saveThreadPage } from "./forums";
 import {
   completeProcessing,
   invalidateProcessingContext,
@@ -43,6 +46,23 @@ const attempt = <A>(operation: string, body: () => A) =>
 export class ProjectStorage extends Context.Service<
   ProjectStorage,
   {
+    readonly forumRequest: (
+      channelId: string,
+      generation: number
+    ) => Effect.Effect<ForumRequest | undefined, ProjectStorageError>;
+    readonly saveThreadPage: (
+      channelId: string,
+      generation: number,
+      page: ThreadPage,
+      at: number
+    ) => Effect.Effect<boolean, ProjectStorageError>;
+    readonly saveForumStarter: (
+      channelId: string,
+      generation: number,
+      message: SourceMessage,
+      policyRevision: string,
+      at: number
+    ) => Effect.Effect<void, ProjectStorageError>;
     readonly beginCycle: Effect.Effect<void, ProjectStorageError>;
     readonly claimAcquisition: (
       project: Project
@@ -103,6 +123,31 @@ export class ProjectStorage extends Context.Service<
     Layer.succeed(
       ProjectStorage,
       ProjectStorage.of({
+        forumRequest: (channelId, generation) =>
+          attempt("forumRequest", () =>
+            nextForumRequest(storage.sql, channelId, generation)
+          ),
+        saveThreadPage: (channelId, generation, page, at) =>
+          attempt("saveThreadPage", () =>
+            saveThreadPage(storage, channelId, generation, page, at)
+          ),
+        saveForumStarter: (
+          channelId,
+          generation,
+          message,
+          policyRevision,
+          at
+        ) =>
+          attempt("saveForumStarter", () =>
+            saveForumStarter(
+              storage,
+              channelId,
+              generation,
+              message,
+              policyRevision,
+              at
+            )
+          ),
         beginCycle: attempt("beginCycle", () => beginCycle(storage.sql)),
         claimAcquisition: (project) =>
           attempt("claimAcquisition", () => claimAcquisition(storage, project)),
