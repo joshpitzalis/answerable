@@ -1,0 +1,617 @@
+import {
+  dumbo,
+  fromDatabaseDriverType,
+  getFormatter,
+  schemaComponentMigrator,
+  type AnyDatabaseTransaction,
+  type AnySchemaComponent,
+  type DatabaseTransactionOptions,
+  type Dumbo,
+  type MigrationStyle,
+  type RunSQLMigrationsResult,
+  type SchemaComponentMigrateOptions,
+  type SQLMigration,
+} from '@event-driven-io/dumbo';
+import type { AnySQLiteConnection } from '@event-driven-io/dumbo/sqlite';
+import {
+  assertExpectedVersionMatchesCurrent,
+  bigIntProcessorCheckpoint,
+  eventStoreCollector,
+  eventStoreObservability,
+  ExpectedVersionConflictError,
+  JSONSerializer,
+  mergeObservability,
+  NO_CONCURRENCY_CHECK,
+  noopScope,
+  withOperationScope,
+  type AggregateStreamOptions,
+  type AggregateStreamResult,
+  type AnyEvent,
+  type AnyMessage,
+  type AppendToStreamOptions,
+  type AppendToStreamResultWithGlobalPosition,
+  type BeforeEventStoreCommitHandler,
+  type EmmettObservabilityConfig,
+  type Event,
+  type EventStore,
+  type EventStoreSession,
+  type EventStoreSessionFactory,
+  type JSONSerializationOptions,
+  type Message,
+  type ProjectionHandlingType,
+  type ProjectionRegistration,
+  type ReadEvent,
+  type ReadEventMetadataWithGlobalPosition,
+  type ReadStreamOptions,
+  type ReadStreamResult,
+  type StreamExistsResult,
+} from '@event-driven-io/emmett';
+import {
+  sqliteEventStoreConsumer,
+  type SQLiteEventStoreConsumer,
+  type SQLiteEventStoreConsumerConfig,
+} from './consumers';
+import type {
+  AnySQLiteEventStoreDriver,
+  InferDumboOptionsFromEventStoreDriver,
+  PoolOrConnectionOptions,
+} from './eventStoreDriver';
+import {
+  handleProjections,
+  isSQLiteProjectionWithSchema,
+  sqliteProjectionWithDatabaseSchemaName,
+  transactionToSQLiteProjectionHandlerContext,
+  type SQLiteProjectionDefinition,
+  type SQLiteProjectionEnsureMigratedOptions,
+  type SQLiteProjectionHandlerContext,
+} from './projections';
+import {
+  appendToStream,
+  createEventStoreSchema,
+  eventStoreDatabaseSchema,
+  eventStoreSchemaComponent,
+  eventStoreSchemaSQL,
+  readStream,
+  streamExists,
+  unknownTag,
+  type EventStoreDatabaseSchemaOptions,
+  type SQLiteStreamExistsOptions,
+} from './schema';
+import { truncateTables } from './schema/truncateTables';
+
+export type EventHandler<E extends Event = Event> = (
+  eventEnvelope: ReadEvent<E>,
+) => void;
+
+export const SQLiteEventStoreDefaultStreamVersion = 0n;
+
+export interface SQLiteEventStore
+  extends
+    EventStore<SQLiteReadEventMetadata>,
+    EventStoreSessionFactory<SQLiteEventStore> {
+  appendToStream<
+    EventType extends Event,
+    EventPayloadType extends Event = EventType,
+  >(
+    streamName: string,
+    events: EventType[],
+    options?: AppendToStreamOptions<EventType, EventPayloadType>,
+  ): Promise<AppendToStreamResultWithGlobalPosition>;
+  consumer<ConsumerMessageType extends Message = AnyMessage>(
+    options?: SQLiteEventStoreConsumerConfig<ConsumerMessageType> & {
+      includeAsyncProjections?: boolean;
+    },
+  ): SQLiteEventStoreConsumer<ConsumerMessageType>;
+  streamExists(
+    streamName: string,
+    options?: SQLiteStreamExistsOptions,
+  ): Promise<StreamExistsResult>;
+  close(): Promise<void>;
+  schema: {
+    readonly component: AnySchemaComponent;
+    readonly migrations: ReadonlyArray<SQLMigration>;
+    sql(): string;
+    print(): void;
+    ensureMigrated(
+      options?: SQLiteProjectionEnsureMigratedOptions,
+    ): Promise<void>;
+    migrate(
+      options?: Omit<SchemaComponentMigrateOptions, 'execute'>,
+    ): Promise<RunSQLMigrationsResult>;
+    dangerous: {
+      truncate(options?: { truncateProjections?: boolean }): Promise<void>;
+    };
+  };
+}
+
+export type SQLiteReadEventMetadata = ReadEventMetadataWithGlobalPosition;
+
+export type SQLiteReadEvent<EventType extends Event = Event> = ReadEvent<
+  EventType,
+  SQLiteReadEventMetadata
+>;
+
+export type SQLiteEventStoreOptions<
+  EventStoreDriver extends AnySQLiteEventStoreDriver =
+    AnySQLiteEventStoreDriver,
+> = {
+  driver: EventStoreDriver;
+  projections?: ProjectionRegistration<
+    ProjectionHandlingType,
+    SQLiteReadEventMetadata,
+    SQLiteProjectionHandlerContext<EventStoreDriver>
+  >[];
+  observability?: EmmettObservabilityConfig;
+  schema?: {
+    autoMigration?: MigrationStyle;
+  } & EventStoreDatabaseSchemaOptions;
+  hooks?: {
+    /**
+     * This hook will be called **BEFORE** event store schema is created
+     */
+    onBeforeSchemaCreated?: (
+      context: SQLiteProjectionHandlerContext<EventStoreDriver>,
+    ) => Promise<void> | void;
+    /**
+     * This hook will be called **BEFORE** events were stored in the event store.
+     * @type {BeforeEventStoreCommitHandler<SQLiteEventStore, HandlerContext>}
+     */
+    onBeforeCommit?: BeforeEventStoreCommitHandler<
+      SQLiteEventStore,
+      {
+        connection: AnySQLiteConnection;
+        transaction: AnyDatabaseTransaction;
+      }
+    >;
+    /**
+     * This hook will be called **AFTER** event store schema was created
+     */
+    onAfterSchemaCreated?: (
+      context: SQLiteProjectionHandlerContext<EventStoreDriver>,
+    ) => Promise<void> | void;
+  };
+} & PoolOrConnectionOptions<EventStoreDriver> &
+  JSONSerializationOptions;
+
+export const getSQLiteEventStore = <
+  Driver extends AnySQLiteEventStoreDriver = AnySQLiteEventStoreDriver,
+>(
+  options: SQLiteEventStoreOptions<Driver>,
+): SQLiteEventStore => {
+  let autoGenerateSchema = false;
+
+  const serializer = JSONSerializer.from(options);
+
+  const databaseSchema = eventStoreDatabaseSchema(options.schema);
+
+  const dumboOptions = {
+    serialization: options.serialization,
+    ...options.driver.mapToDumboOptions(options),
+  } as InferDumboOptionsFromEventStoreDriver<Driver>;
+
+  const pool: Dumbo = options.pool ?? dumbo(dumboOptions);
+
+  const session = {
+    pool,
+    driver: options.driver,
+    connectionOptions: dumboOptions,
+  };
+  let migrateSchema: Promise<RunSQLMigrationsResult> | undefined = undefined;
+  const projections = (options.projections ?? []).map((registration) => ({
+    ...registration,
+    projection: sqliteProjectionWithDatabaseSchemaName(
+      registration.projection,
+      databaseSchema.projectionsDatabaseSchemaName,
+    ),
+  }));
+  const projectionSchemaComponents = (
+    registrations: NonNullable<typeof options.projections>,
+  ): AnySchemaComponent[] =>
+    registrations
+      .map(({ projection }) => projection)
+      .filter(isSQLiteProjectionWithSchema)
+      .map(({ schema }) => schema.component);
+  const schemaMigrator = schemaComponentMigrator({
+    pool,
+    component: eventStoreSchemaComponent(
+      options.schema,
+      projectionSchemaComponents(projections),
+    ),
+    migrationTable: databaseSchema.migrationTable,
+  });
+
+  const inlineProjections = projections
+    .filter(({ type }) => type === 'inline')
+    .map(({ projection }) => projection);
+  const asyncProjections = projections
+    .filter(({ type }) => type === 'async')
+    .map(({ projection }) => projection);
+  const observability = eventStoreObservability(options);
+  const collector = eventStoreCollector(observability);
+
+  const onBeforeCommitHook = options.hooks?.onBeforeCommit;
+
+  if (options) {
+    autoGenerateSchema =
+      options.schema?.autoMigration === undefined ||
+      options.schema?.autoMigration !== 'None';
+  }
+
+  const migrate = async (
+    migrationOptions?: Omit<SchemaComponentMigrateOptions, 'execute'>,
+  ): Promise<RunSQLMigrationsResult> => {
+    if (!migrateSchema) {
+      const schemaMigrationOptions = {
+        ...options.schema,
+        ...migrationOptions,
+        ...databaseSchema,
+      };
+
+      const migration = createEventStoreSchema({
+        ...session,
+        hooks: {
+          onBeforeSchemaCreated: async (untypedContext) => {
+            // TODO: Fix this cast when the pool plumbing is driver-generic
+            const context =
+              untypedContext as SQLiteProjectionHandlerContext<Driver>;
+            for (const projection of inlineProjections) {
+              if (projection.init) {
+                await projection.init({
+                  version: projection.version ?? 1,
+                  registrationType: 'async',
+                  status: 'active',
+                  context,
+                });
+              }
+            }
+            if (options.hooks?.onBeforeSchemaCreated) {
+              await options.hooks.onBeforeSchemaCreated(context);
+            }
+          },
+          onAfterSchemaCreated: async (untypedContext) => {
+            // TODO: Fix this cast when the pool plumbing is driver-generic
+            const context =
+              untypedContext as SQLiteProjectionHandlerContext<Driver>;
+
+            if (options.hooks?.onAfterSchemaCreated) {
+              await options.hooks.onAfterSchemaCreated(context);
+            }
+          },
+        },
+        schema: schemaMigrationOptions,
+        components: projectionSchemaComponents(projections),
+      });
+
+      if (migrationOptions?.dryRun) {
+        return migration;
+      }
+
+      const memoised = migration.catch((error: unknown) => {
+        if (migrateSchema === memoised) migrateSchema = undefined;
+        throw error;
+      });
+      migrateSchema = memoised;
+      return memoised;
+    }
+    const result = await migrateSchema;
+
+    return { applied: [], skipped: result.applied.concat(result.skipped) };
+  };
+
+  const eventStoreSchemaDescription = (): string =>
+    getFormatter(fromDatabaseDriverType(pool.driverType).databaseType).describe(
+      [
+        ...eventStoreSchemaSQL(options.schema),
+        ...projectionSchemaComponents(projections).flatMap((component) =>
+          component.migrations().flatMap(({ sqls }) => sqls),
+        ),
+      ],
+      { serializer },
+    );
+
+  const ensureSchemaExists = (): Promise<unknown> => {
+    if (!autoGenerateSchema) return Promise.resolve();
+
+    if (options.schema?.autoMigration === 'EnsureMigrated')
+      return schemaMigrator.ensureMigrated();
+
+    return migrate();
+  };
+
+  const readStreamFromSQLite = <
+    EventType extends Event,
+    EventPayloadType extends Event = EventType,
+  >(
+    streamName: string,
+    readOptions?: ReadStreamOptions<EventType, EventPayloadType>,
+  ): Promise<
+    ReadStreamResult<EventType, ReadEventMetadataWithGlobalPosition>
+  > =>
+    collector.instrumentRead(
+      streamName,
+      async () => {
+        await ensureSchemaExists();
+
+        return readStream<EventType, EventPayloadType>(
+          pool.execute,
+          streamName,
+          {
+            ...readOptions,
+            databaseSchemaName: databaseSchema.databaseSchemaName,
+            serializer: options.serialization?.serializer ?? serializer,
+          },
+        );
+      },
+      readOptions?.observability,
+    );
+
+  return {
+    async aggregateStream<
+      State,
+      EventType extends Event,
+      EventPayloadType extends Event = EventType,
+    >(
+      streamName: string,
+      options: AggregateStreamOptions<
+        State,
+        EventType,
+        ReadEventMetadataWithGlobalPosition,
+        EventPayloadType
+      >,
+    ): Promise<AggregateStreamResult<State>> {
+      return collector.instrumentAggregate(
+        streamName,
+        async (scope) => {
+          await ensureSchemaExists();
+          const { evolve, initialState, read } = options;
+
+          const expectedStreamVersion = read?.expectedStreamVersion;
+
+          let state = initialState();
+
+          if (typeof streamName !== 'string') {
+            throw new Error('Stream name is not string');
+          }
+
+          const result = await readStreamFromSQLite<
+            EventType,
+            EventPayloadType
+          >(streamName, {
+            ...(read ?? {}),
+            observability: withOperationScope(scope, read?.observability),
+          });
+
+          const currentStreamVersion = result.currentStreamVersion;
+
+          assertExpectedVersionMatchesCurrent(
+            currentStreamVersion,
+            expectedStreamVersion,
+            SQLiteEventStoreDefaultStreamVersion,
+          );
+
+          for (const event of result.events) {
+            if (!event) continue;
+            state = evolve(state, event);
+          }
+
+          return {
+            currentStreamVersion: currentStreamVersion,
+            state,
+            streamExists: result.streamExists,
+          };
+        },
+        options.observability,
+      );
+    },
+
+    readStream: async <
+      EventType extends Event,
+      EventPayloadType extends Event = EventType,
+    >(
+      streamName: string,
+      readOptions?: ReadStreamOptions<EventType, EventPayloadType>,
+    ): Promise<
+      ReadStreamResult<EventType, ReadEventMetadataWithGlobalPosition>
+    > => readStreamFromSQLite(streamName, readOptions),
+
+    appendToStream: async <
+      EventType extends Event,
+      EventPayloadType extends Event = EventType,
+    >(
+      streamName: string,
+      events: EventType[],
+      appendOptions?: AppendToStreamOptions<EventType, EventPayloadType>,
+    ): Promise<AppendToStreamResultWithGlobalPosition> =>
+      collector.instrumentAppend(
+        streamName,
+        events,
+        async (scope) => {
+          await ensureSchemaExists();
+          // TODO: This has to be smarter when we introduce urn-based resolution
+          const [firstPart, ...rest] = streamName.split('-');
+
+          const streamType =
+            firstPart && rest.length > 0 ? firstPart : unknownTag;
+
+          const appendResult = await pool.withConnection(
+            (connection) =>
+              appendToStream(connection, streamName, streamType, events, {
+                ...(appendOptions as AppendToStreamOptions),
+                databaseSchemaName: databaseSchema.databaseSchemaName,
+                messageIdGenerator: () =>
+                  observability.contextGenerator.generateMessageId(),
+                context: scope.context,
+                onBeforeCommit: async (messages, context) => {
+                  if (inlineProjections.length > 0)
+                    await collector.instrumentInlineProjection(
+                      streamName,
+                      scope,
+                      (observabilityScope) =>
+                        handleProjections({
+                          projections: inlineProjections,
+                          events: messages,
+                          ...transactionToSQLiteProjectionHandlerContext(
+                            session,
+                            context.transaction,
+                          ),
+                          migrationOptions: databaseSchema,
+                          observabilityScope,
+                        }),
+                    );
+
+                  if (onBeforeCommitHook)
+                    await onBeforeCommitHook(messages, context);
+                },
+              }),
+            { readonly: false },
+          );
+
+          if (!appendResult.success)
+            throw new ExpectedVersionConflictError(
+              -1n, //TODO: Return actual version in case of error
+              appendOptions?.expectedStreamVersion ?? NO_CONCURRENCY_CHECK,
+            );
+
+          return {
+            nextExpectedStreamVersion: appendResult.nextStreamPosition,
+            lastEventGlobalPosition: bigIntProcessorCheckpoint(
+              appendResult.lastGlobalPosition,
+            ),
+            createdNewStream:
+              appendResult.nextStreamPosition === BigInt(events.length),
+          };
+        },
+        appendOptions?.observability,
+      ),
+
+    async streamExists(
+      streamName: string,
+      options?: SQLiteStreamExistsOptions,
+    ): Promise<StreamExistsResult> {
+      await ensureSchemaExists();
+      return streamExists(pool.execute, streamName, {
+        ...options,
+        databaseSchemaName: databaseSchema.databaseSchemaName,
+      });
+    },
+
+    consumer: <ConsumerMessageType extends Message = AnyMessage>(
+      consumerOptions?: SQLiteEventStoreConsumerConfig<ConsumerMessageType> & {
+        includeAsyncProjections?: boolean;
+      },
+    ): SQLiteEventStoreConsumer<ConsumerMessageType> => {
+      const storeMigrates =
+        consumerOptions?.schema?.autoMigration === undefined;
+      const consumer = sqliteEventStoreConsumer<ConsumerMessageType, Driver>({
+        ...(options ?? {}),
+        ...consumerOptions,
+        schema: {
+          ...consumerOptions?.schema,
+          autoMigration:
+            consumerOptions?.schema?.autoMigration ??
+            options.schema?.autoMigration,
+          ...databaseSchema,
+        },
+        observability: mergeObservability(
+          options.observability,
+          consumerOptions?.observability,
+        ),
+        pool,
+        hooks: storeMigrates
+          ? {
+              onInit: async () => {
+                await ensureSchemaExists();
+              },
+            }
+          : undefined,
+      });
+
+      if (consumerOptions?.includeAsyncProjections)
+        for (const projection of asyncProjections)
+          consumer.projector({
+            // TODO: Fix this cast when projection registrations are typed with the consumer message type
+            projection: projection as unknown as SQLiteProjectionDefinition<
+              ConsumerMessageType & AnyEvent
+            >,
+            migrationOptions: storeMigrates
+              ? { ...options.schema, ...databaseSchema, autoMigration: 'None' }
+              : undefined,
+          });
+
+      return consumer;
+    },
+
+    async withSession<T = unknown>(
+      callback: (session: EventStoreSession<SQLiteEventStore>) => Promise<T>,
+    ): Promise<T> {
+      const { transactionOptions } = dumboOptions as {
+        transactionOptions?: DatabaseTransactionOptions;
+      };
+
+      return await pool.withConnection(async (connection) => {
+        const sessionStore = getSQLiteEventStore({
+          ...options,
+          pool: dumbo({
+            driver: options.driver.dumboDriver,
+            serialization: options.serialization,
+            transactionOptions,
+            connection,
+          }),
+          schema: {
+            ...options.schema,
+            autoMigration: 'None',
+          },
+          serialization: options.serialization,
+        });
+
+        await ensureSchemaExists();
+
+        return callback({
+          eventStore: sessionStore,
+          close: () => Promise.resolve(),
+        });
+      });
+    },
+
+    close: () => pool.close(),
+    schema: {
+      component: schemaMigrator.component,
+      get migrations() {
+        return schemaMigrator.component.migrations();
+      },
+      sql: eventStoreSchemaDescription,
+      print: () => console.log(eventStoreSchemaDescription()),
+      ensureMigrated: (ensureOptions) =>
+        schemaMigrator.ensureMigrated(ensureOptions),
+      migrate,
+      dangerous: {
+        truncate: (truncateOptions?: {
+          truncateProjections?: boolean;
+        }): Promise<void> =>
+          pool.withTransaction(async (transaction) => {
+            await ensureSchemaExists();
+            await truncateTables(transaction.execute, {
+              databaseSchemaName: databaseSchema.databaseSchemaName,
+            });
+
+            if (truncateOptions?.truncateProjections) {
+              const projectionContext =
+                transactionToSQLiteProjectionHandlerContext(
+                  session,
+                  transaction,
+                );
+
+              for (const projection of options?.projections ?? []) {
+                if (projection.projection.truncate)
+                  await projection.projection.truncate({
+                    ...projectionContext,
+                    migrationOptions: databaseSchema,
+                    observabilityScope: noopScope,
+                  });
+              }
+            }
+          }),
+      },
+    },
+  };
+};

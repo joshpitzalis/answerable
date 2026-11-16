@@ -1,0 +1,1211 @@
+import {
+  LogEvent,
+  MessagingAttributes,
+  noopScope,
+  type ObservabilityScope,
+} from '@event-driven-io/almanac';
+import { v7 as uuid } from 'uuid';
+import type { ProcessorObservabilityConfig } from '.';
+import { EmmettError } from '../errors';
+import { upcastRecordedMessage } from '../eventStore';
+import type {
+  OperationObservabilityOptions,
+  WithObservabilityScope,
+} from '../observability';
+import {
+  EmmettAttributes,
+  EmmettSpans,
+  withOperationScope,
+} from '../observability';
+import type { ProjectionDefinition } from '../projections';
+import type { JSONSerializationOptions } from '../serialization';
+import {
+  defaultTag,
+  type AnyEvent,
+  type AnyMessage,
+  type AnyMessageHandlerContext,
+  type AnyReadEventMetadata,
+  type AnyRecordedMessageMetadata,
+  type BatchMessageHandlerResult,
+  type BatchRecordedMessageHandlerWithContext,
+  type CanHandle,
+  type DefaultRecord,
+  type Event,
+  type Message,
+  type MessageHandlerContext,
+  type PartialHandlerContext,
+  type RecordedMessage,
+  type SingleMessageHandlerResult,
+  type SingleRecordedMessageHandlerWithContext,
+} from '../typing';
+import { onShutdown } from '../utils/lifecycle';
+import { asyncAwaiter } from '../utils/promises';
+import { asyncRetry } from '../utils/retry';
+import {
+  getCheckpoint,
+  ProcessorCheckpoint,
+  type Checkpointer,
+  type StoreProcessorCheckpointResult,
+} from './checkpoints';
+import { inMemoryCheckpointer } from './inMemoryProcessors';
+import { processorCollector, processorObservability } from './observability';
+import {
+  DefaultProcessorLockPolicy,
+  type LockAcquisitionPolicy,
+  type ProcessorLock,
+  type ProcessorLockOptions,
+} from './processorLock';
+
+export type CurrentMessageProcessorPosition =
+  { lastCheckpoint: ProcessorCheckpoint } | 'BEGINNING' | 'END';
+
+export const CurrentMessageProcessorPosition = {
+  compare: (
+    a: CurrentMessageProcessorPosition,
+    b: CurrentMessageProcessorPosition,
+  ) => {
+    if (a === b) return 0;
+
+    if (a === 'BEGINNING') return -1;
+    if (b === 'BEGINNING') return 1;
+
+    if (a === 'END') return 1;
+    if (b === 'END') return -1;
+
+    return ProcessorCheckpoint.compare(a.lastCheckpoint, b.lastCheckpoint);
+  },
+  zip: (
+    checkpoints: (CurrentMessageProcessorPosition | undefined)[],
+  ): CurrentMessageProcessorPosition => {
+    if (checkpoints.length === 0) return 'BEGINNING';
+
+    return (
+      checkpoints
+        .map((pos) => (pos === undefined ? 'BEGINNING' : pos))
+        .sort((a, b) => CurrentMessageProcessorPosition.compare(a, b))[0] ??
+      'BEGINNING'
+    );
+  },
+};
+
+export const wasMessageHandled = <
+  MessageType extends AnyMessage = AnyMessage,
+  MessageMetadataType extends AnyReadEventMetadata = AnyReadEventMetadata,
+>(
+  message: RecordedMessage<MessageType, MessageMetadataType>,
+  checkpoint: ProcessorCheckpoint | null,
+): boolean => {
+  //TODO Make it smarter
+  const messageCheckpoint = getCheckpoint(message);
+
+  return (
+    messageCheckpoint !== null &&
+    messageCheckpoint !== undefined &&
+    checkpoint !== null &&
+    checkpoint !== undefined &&
+    ProcessorCheckpoint.compare(messageCheckpoint, checkpoint) <= 0
+  );
+};
+
+export type MessageProcessorStartFrom =
+  | CurrentMessageProcessorPosition
+  /** @deprecated omit `startFrom` instead */
+  | 'CURRENT';
+
+export type MessageProcessorType = 'projector' | 'reactor';
+export const MessageProcessorType = {
+  PROJECTOR: 'projector' as MessageProcessorType,
+  REACTOR: 'reactor' as MessageProcessorType,
+};
+
+export type WaitOptions = {
+  /**
+   * Maximum time to wait, in milliseconds. When it elapses before the
+   * awaited point is reached, the returned promise rejects with a descriptive
+   * {@link EmmettError} instead of hanging. Omit to wait indefinitely.
+   */
+  timeout?: number;
+};
+
+const raceWithTimeout = (
+  wait: Promise<void>,
+  timeout: number | undefined,
+  timeoutMessage: () => string,
+): Promise<void> => {
+  if (timeout === undefined) return wait;
+
+  let timer: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<void>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new EmmettError(timeoutMessage())),
+      timeout,
+    );
+  });
+
+  return Promise.race([wait, timeoutPromise]).finally(() =>
+    clearTimeout(timer),
+  );
+};
+
+export type MessageProcessor<
+  MessageType extends AnyMessage = AnyMessage,
+  MessageMetadataType extends AnyReadEventMetadata = AnyReadEventMetadata,
+  HandlerContext extends AnyMessageHandlerContext = AnyMessageHandlerContext,
+> = {
+  id: string;
+  instanceId: string;
+  type: string;
+  canHandle?: string[];
+  init: (options?: PartialHandlerContext<HandlerContext>) => Promise<void>;
+  start: (
+    options?: PartialHandlerContext<HandlerContext>,
+  ) => Promise<CurrentMessageProcessorPosition | undefined>;
+  close: (
+    closeOptions?: PartialHandlerContext<HandlerContext>,
+  ) => Promise<void>;
+  isActive: boolean;
+  /**
+   * Resolves once the processor has stored a checkpoint at or past the given
+   * one. Resolves immediately when that point was already reached, so it never
+   * races an append that has already been processed. Rejects on
+   * {@link WaitOptions.timeout}.
+   */
+  whenProcessed: (
+    checkpoint: ProcessorCheckpoint,
+    options?: WaitOptions,
+  ) => Promise<void>;
+  handle: BatchRecordedMessageHandlerWithContext<
+    MessageType,
+    MessageMetadataType,
+    PartialHandlerContext<HandlerContext>
+  >;
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyMessageProcessor<MessageType extends AnyMessage = any> =
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  MessageProcessor<MessageType, any, any>;
+
+const isMessageProcessor = (value: unknown): value is AnyMessageProcessor => {
+  if (typeof value !== 'object' || value === null) return false;
+
+  const candidate = value as Partial<AnyMessageProcessor>;
+
+  return (
+    typeof candidate.id === 'string' &&
+    typeof candidate.instanceId === 'string' &&
+    typeof candidate.init === 'function' &&
+    typeof candidate.start === 'function' &&
+    typeof candidate.close === 'function' &&
+    typeof candidate.whenProcessed === 'function' &&
+    typeof candidate.handle === 'function'
+  );
+};
+
+export type ProcessorMessageType<ProcessorType> =
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ProcessorType extends MessageProcessor<infer MessageType, any, any>
+    ? MessageType
+    : never;
+
+export type EnsureCompatibleProcessor<
+  ProcessorType,
+  ConsumerMessageType extends Message,
+> = [ProcessorType] extends [
+  MessageProcessor<
+    infer _ProcessorMessageType extends ConsumerMessageType,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    any
+  >,
+]
+  ? unknown
+  : never;
+
+export type CompatibleProcessor<
+  ConsumerMessageType extends AnyMessage,
+  ProcessorType extends AnyMessageProcessor,
+> = ProcessorType &
+  EnsureCompatibleProcessor<ProcessorType, ConsumerMessageType>;
+
+export type RegisterMessageProcessor<ConsumerMessageType extends Message> = <
+  ProcessorType extends AnyMessageProcessor,
+>(
+  processor: CompatibleProcessor<ConsumerMessageType, ProcessorType>,
+) => ProcessorType;
+
+export type MessageProcessorFactory<
+  ConsumerMessageType extends AnyMessage,
+  OptionsType,
+  ProcessorType extends AnyMessageProcessor,
+> = (
+  options: OptionsType,
+) => CompatibleProcessor<ConsumerMessageType, ProcessorType>;
+
+export type AnyMessageProcessorFactory<
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ConsumerMessageType extends AnyMessage = any,
+> = MessageProcessorFactory<
+  ConsumerMessageType,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  any,
+  AnyMessageProcessor
+>;
+
+export const withMessageProcessorFactory = <
+  ConsumerMessageType extends Message,
+  ProcessorFactory extends AnyMessageProcessorFactory<ConsumerMessageType>,
+>(
+  register: RegisterMessageProcessor<ConsumerMessageType>,
+  factory: ProcessorFactory,
+  mapFactoryOptions: (options: unknown) => unknown = (options) => options,
+): RegisterMessageProcessor<ConsumerMessageType> & ProcessorFactory => {
+  const registerOrCreate = (
+    processorOrOptions: unknown,
+  ): AnyMessageProcessor => {
+    const processor = isMessageProcessor(processorOrOptions)
+      ? processorOrOptions
+      : factory(mapFactoryOptions(processorOrOptions));
+
+    return register(processor);
+  };
+
+  return registerOrCreate as RegisterMessageProcessor<ConsumerMessageType> &
+    ProcessorFactory;
+};
+
+export const MessageProcessor = {
+  result: {
+    skip: (options?: { reason?: string }): SingleMessageHandlerResult => ({
+      type: 'SKIP',
+      ...(options ?? {}),
+    }),
+    stop: (options?: {
+      reason?: string;
+      error?: EmmettError;
+    }): SingleMessageHandlerResult => ({
+      type: 'STOP',
+      ...(options ?? {}),
+    }),
+  },
+};
+
+export type MessageProcessingScope<
+  HandlerContext extends AnyMessageHandlerContext = AnyMessageHandlerContext,
+> = <Result = SingleMessageHandlerResult>(
+  handler: (context: HandlerContext) => Result | Promise<Result>,
+  partialContext: WithObservabilityScope<PartialHandlerContext<HandlerContext>>,
+) => Result | Promise<Result>;
+
+export type ProcessorHooks<
+  HandlerContext extends AnyMessageHandlerContext = AnyMessageHandlerContext,
+> = {
+  onInit?: OnReactorInitHook<HandlerContext>;
+  onStart?: OnReactorStartHook<HandlerContext>;
+  onClose?: OnReactorCloseHook<HandlerContext>;
+};
+
+export type BaseMessageProcessorOptions<
+  MessageType extends AnyMessage = AnyMessage,
+  MessageMetadataType extends AnyReadEventMetadata = AnyReadEventMetadata,
+  HandlerContext extends AnyMessageHandlerContext = AnyMessageHandlerContext,
+> = {
+  type?: string;
+  processorId: string;
+  processorInstanceId?: string;
+  version?: number;
+  partition?: string;
+  startFrom?: MessageProcessorStartFrom;
+  stopAfter?: (
+    message: RecordedMessage<MessageType, MessageMetadataType>,
+  ) => boolean;
+  processingScope?: MessageProcessingScope<HandlerContext>;
+  checkpoints?:
+    Checkpointer<MessageType, MessageMetadataType, HandlerContext> | 'DISABLED';
+  canHandle?: CanHandle<MessageType>;
+  hooks?: ProcessorHooks<HandlerContext>;
+  lock?: ProcessorLockOptions<HandlerContext>;
+} & JSONSerializationOptions & {
+    observability?: ProcessorObservabilityConfig;
+  };
+
+export type HandlerOptions<
+  MessageType extends AnyMessage = AnyMessage,
+  MessageMetadataType extends AnyReadEventMetadata = AnyReadEventMetadata,
+  HandlerContext extends AnyMessageHandlerContext = AnyMessageHandlerContext,
+> =
+  | {
+      eachMessage: SingleRecordedMessageHandlerWithContext<
+        MessageType,
+        MessageMetadataType,
+        HandlerContext
+      >;
+      eachBatch?: never;
+    }
+  | {
+      eachMessage?: never;
+      eachBatch: BatchRecordedMessageHandlerWithContext<
+        MessageType,
+        MessageMetadataType,
+        HandlerContext
+      >;
+    };
+
+export type OnReactorInitHook<
+  HandlerContext extends AnyMessageHandlerContext = AnyMessageHandlerContext,
+> = (context: HandlerContext) => Promise<void>;
+
+export type OnReactorStartHook<
+  HandlerContext extends AnyMessageHandlerContext = AnyMessageHandlerContext,
+> = (context: HandlerContext) => Promise<void>;
+
+export type OnReactorCloseHook<
+  HandlerContext extends AnyMessageHandlerContext = AnyMessageHandlerContext,
+> = (context: HandlerContext) => Promise<void>;
+
+export type ReactorOptions<
+  MessageType extends AnyMessage = AnyMessage,
+  MessageMetadataType extends AnyReadEventMetadata = AnyReadEventMetadata,
+  HandlerContext extends AnyMessageHandlerContext = AnyMessageHandlerContext,
+  MessagePayloadType extends AnyMessage = MessageType,
+> = BaseMessageProcessorOptions<
+  MessageType,
+  MessageMetadataType,
+  HandlerContext
+> &
+  HandlerOptions<MessageType, MessageMetadataType, HandlerContext> & {
+    messageOptions?: {
+      schema?: {
+        versioning?: { upcast?: (event: MessagePayloadType) => MessageType };
+      };
+    };
+  };
+
+export type ProjectorOptions<
+  EventType extends AnyEvent = AnyEvent,
+  MessageMetadataType extends AnyReadEventMetadata = AnyReadEventMetadata,
+  HandlerContext extends AnyMessageHandlerContext = AnyMessageHandlerContext,
+  EventPayloadType extends Event = EventType,
+> = Omit<
+  BaseMessageProcessorOptions<EventType, MessageMetadataType, HandlerContext>,
+  'type' | 'processorId'
+> & { processorId?: string } & {
+  truncateOnStart?: boolean;
+  projection: ProjectionDefinition<
+    EventType,
+    MessageMetadataType,
+    HandlerContext,
+    EventPayloadType
+  >;
+};
+
+export const defaultProcessingMessageProcessingScope = <
+  HandlerContext extends AnyMessageHandlerContext = AnyMessageHandlerContext,
+  Result = SingleMessageHandlerResult,
+>(
+  handler: (
+    context: WithObservabilityScope<HandlerContext>,
+  ) => Result | Promise<Result>,
+  partialContext: WithObservabilityScope<PartialHandlerContext<HandlerContext>>,
+) =>
+  handler({
+    ...partialContext,
+    observabilityScope: partialContext.observabilityScope ?? noopScope,
+  } as WithObservabilityScope<HandlerContext>);
+
+type AppendingMessageStore = {
+  appendToStream: (
+    streamName: string,
+    messages: unknown[],
+    options?: { observability?: OperationObservabilityOptions },
+  ) => unknown;
+};
+
+const isAppendingMessageStore = (
+  store: unknown,
+): store is AppendingMessageStore =>
+  typeof (store as AppendingMessageStore | undefined)?.appendToStream ===
+  'function';
+
+const appendsThroughItsSession = (
+  context: unknown,
+): context is MessageHandlerContext<
+  Record<never, never>,
+  { messageStore: AppendingMessageStore }
+> =>
+  isAppendingMessageStore(
+    (context as { session?: { messageStore?: unknown } } | undefined)?.session
+      ?.messageStore,
+  );
+
+/**
+ * Binds the message store handed to the handler to the scope of the message
+ * being handled, so what a handler appends continues the triggering message's
+ * flow without threading the scope by hand. A handler passing its own scope or
+ * parent still wins.
+ */
+const withScopedMessageStore = <HandlerContext>(
+  context: HandlerContext,
+  scope: ObservabilityScope,
+): HandlerContext => {
+  if (!appendsThroughItsSession(context)) return context;
+
+  const { session } = context;
+
+  const messageStore = new Proxy(session.messageStore, {
+    get: (target, property, receiver): unknown => {
+      if (property !== 'appendToStream')
+        return Reflect.get(target, property, receiver);
+
+      return (
+        streamName: string,
+        messages: unknown[],
+        options?: { observability?: OperationObservabilityOptions },
+      ) =>
+        target.appendToStream(streamName, messages, {
+          ...options,
+          observability:
+            (options?.observability?.scope ?? options?.observability?.parent)
+              ? options.observability
+              : withOperationScope(scope, options?.observability),
+        });
+    },
+  });
+
+  return {
+    ...context,
+    session: { ...session, messageStore },
+  };
+};
+
+export const defaultProcessorVersion = 1;
+export const defaultProcessorPartition = defaultTag;
+
+export const getProcessorInstanceId = (processorId: string): string =>
+  `${processorId}:${uuid()}`;
+
+export const getProjectorId = (options: { projectionName: string }): string =>
+  `emt:processor:projector:${options.projectionName}`;
+
+const { debug, info } = LogEvent;
+
+const acquireProcessorLock = async <HandlerContext extends DefaultRecord>(
+  options: {
+    processorId: string;
+    lock: ProcessorLock<HandlerContext>;
+    acquisitionPolicy?: LockAcquisitionPolicy;
+  },
+  context: HandlerContext,
+): Promise<boolean> => {
+  const policy = options.acquisitionPolicy ?? DefaultProcessorLockPolicy;
+
+  // exhausting the retries rejects from within asyncRetry, so the throw below
+  // is only reached by the single-attempt policies
+  const acquired =
+    policy.type === 'retry'
+      ? await asyncRetry(() => options.lock.tryAcquire(context), {
+          retries: policy.retries - 1,
+          minTimeout: policy.minTimeout,
+          maxTimeout: policy.maxTimeout,
+          shouldRetryResult: (acquired) => !acquired,
+        })
+      : await options.lock.tryAcquire(context);
+
+  if (!acquired && policy.type !== 'skip')
+    throw new EmmettError(
+      `Failed to acquire lock for processor '${options.processorId}'`,
+    );
+
+  return acquired;
+};
+
+export const reactor = <
+  MessageType extends Message = AnyMessage,
+  MessageMetadataType extends AnyReadEventMetadata = AnyReadEventMetadata,
+  HandlerContext extends AnyMessageHandlerContext = AnyMessageHandlerContext,
+  MessagePayloadType extends Message = MessageType,
+>(
+  options: ReactorOptions<
+    MessageType,
+    MessageMetadataType,
+    HandlerContext,
+    MessagePayloadType
+  >,
+): MessageProcessor<MessageType, MessageMetadataType, HandlerContext> => {
+  const {
+    checkpoints,
+    processorId,
+    processorInstanceId: instanceId = getProcessorInstanceId(processorId),
+    type = MessageProcessorType.REACTOR,
+    version = defaultProcessorVersion,
+    partition = defaultProcessorPartition,
+    hooks = {},
+    lock: lockOptions = {},
+    processingScope = defaultProcessingMessageProcessingScope,
+    startFrom,
+    canHandle,
+    stopAfter,
+  } = options;
+
+  const checkpointer =
+    checkpoints === 'DISABLED'
+      ? inMemoryCheckpointer<MessageType, MessageMetadataType, HandlerContext>()
+      : checkpoints;
+
+  const collector = processorCollector(processorObservability(options));
+  const processorIds = {
+    [EmmettAttributes.processor.id]: processorId,
+    [EmmettAttributes.processor.instanceId]: instanceId,
+    [EmmettAttributes.processor.type]: type,
+  };
+
+  const isCustomBatch = 'eachBatch' in options && !!options.eachBatch;
+
+  const checkpointBefore = () =>
+    lastCheckpoint !== null
+      ? { [EmmettAttributes.processor.checkpointBefore]: lastCheckpoint }
+      : {};
+
+  const batchHandlingFailed = (
+    messages: RecordedMessage<MessageType, MessageMetadataType>[],
+    err: unknown,
+  ): LogEvent => {
+    const first = messages[0] ? getCheckpoint(messages[0]) : null;
+    const last = messages[messages.length - 1]
+      ? getCheckpoint(messages[messages.length - 1]!)
+      : null;
+    return LogEvent(
+      'emmett.processor.batch.exception',
+      {
+        body: 'Processor stopped: batch handling failed',
+        error: err as Error,
+        attributes: {
+          ...processorIds,
+          [EmmettAttributes.processor.batchSize]: messages.length,
+          ...(first !== null
+            ? { [EmmettAttributes.processor.batch.checkpoint.first]: first }
+            : {}),
+          ...(last !== null
+            ? { [EmmettAttributes.processor.batch.checkpoint.last]: last }
+            : {}),
+          ...checkpointBefore(),
+        },
+      },
+      { level: 'error' },
+    );
+  };
+
+  const messageHandlingFailed = (
+    message: RecordedMessage<MessageType, MessageMetadataType>,
+    err: unknown,
+  ): LogEvent => {
+    const meta = message.metadata as Record<string, unknown>;
+    return LogEvent(
+      'emmett.processor.message.exception',
+      {
+        body: 'Processor stopped: message handling failed',
+        error: err as Error,
+        attributes: {
+          ...processorIds,
+          [EmmettAttributes.event.type]: message.type,
+          ...(meta.messageId !== undefined
+            ? { [MessagingAttributes.message.id]: meta.messageId }
+            : {}),
+          ...(meta.streamName !== undefined
+            ? { [EmmettAttributes.stream.name]: meta.streamName }
+            : {}),
+          ...(meta.streamPosition !== undefined
+            ? {
+                [EmmettAttributes.stream.position]: Number(meta.streamPosition),
+              }
+            : {}),
+          ...checkpointBefore(),
+        },
+      },
+      { level: 'error' },
+    );
+  };
+
+  const eachBatch: BatchRecordedMessageHandlerWithContext<
+    MessageType,
+    MessageMetadataType,
+    HandlerContext
+  > = isCustomBatch
+    ? options.eachBatch
+    : async (
+        messages: RecordedMessage<MessageType, MessageMetadataType>[],
+        context: HandlerContext,
+      ): Promise<BatchMessageHandlerResult> => {
+        let result: BatchMessageHandlerResult = undefined;
+        for (let i = 0; i < messages.length; i++) {
+          const message = messages[i]!;
+          const messageProcessingResult = await collector
+            .startMessageScope(
+              {
+                processorId,
+                type,
+                checkpoint: lastCheckpoint,
+                archetypeType: type,
+              },
+              message,
+              context.observabilityScope,
+              async (messageScope) => {
+                try {
+                  return await options.eachMessage(
+                    message,
+                    withScopedMessageStore(
+                      { ...context, observabilityScope: messageScope },
+                      messageScope,
+                    ),
+                  );
+                } catch (err) {
+                  messageScope.log(messageHandlingFailed(message, err));
+                  throw err;
+                }
+              },
+            )
+            .catch((err): SingleMessageHandlerResult => ({
+              type: 'STOP',
+              error: err as EmmettError,
+              reason: 'Error during message processing',
+            }));
+
+          if (
+            messageProcessingResult &&
+            messageProcessingResult.type === 'STOP'
+          ) {
+            result = {
+              ...messageProcessingResult,
+              lastSuccessfulMessage: messageProcessingResult.error
+                ? messages[i - 1]
+                : message,
+            };
+            break;
+          }
+
+          if (stopAfter && stopAfter(message)) {
+            result = {
+              type: 'STOP',
+              reason: 'Stop condition reached',
+              lastSuccessfulMessage: message,
+            };
+            break;
+          }
+
+          if (
+            messageProcessingResult &&
+            messageProcessingResult.type === 'SKIP'
+          ) {
+            result = {
+              ...messageProcessingResult,
+              lastSuccessfulMessage: message,
+            };
+            continue;
+          }
+        }
+        return result;
+      };
+
+  let isInitiated = false;
+  let isActive = false;
+  let isClosed = false;
+  let isLockAcquired = false;
+
+  let lastCheckpoint: ProcessorCheckpoint | null = null;
+  let lastStoredCheckpoint: ProcessorCheckpoint | null = null;
+  let closeSignal: (() => void) | null = null;
+
+  const checkpointWaiters = new Set<{
+    target: ProcessorCheckpoint;
+    resolve: () => void;
+    reject: (error: EmmettError) => void;
+  }>();
+
+  const hasProcessed = (target: ProcessorCheckpoint): boolean =>
+    lastCheckpoint !== null &&
+    ProcessorCheckpoint.compare(lastCheckpoint, target) >= 0;
+
+  const notifyCheckpointWaiters = () => {
+    for (const waiter of checkpointWaiters) {
+      if (hasProcessed(waiter.target)) {
+        checkpointWaiters.delete(waiter);
+        waiter.resolve();
+      }
+    }
+  };
+
+  const closedBeforeCheckpointError = (checkpoint: ProcessorCheckpoint) =>
+    new EmmettError(
+      `Processor ${processorId} with instance id ${instanceId} was closed before reaching checkpoint ${checkpoint} (last processed checkpoint: ${lastCheckpoint ?? 'none'})`,
+    );
+
+  const rejectCheckpointWaiters = () => {
+    for (const waiter of checkpointWaiters) {
+      checkpointWaiters.delete(waiter);
+      waiter.reject(closedBeforeCheckpointError(waiter.target));
+    }
+  };
+
+  const whenProcessed = (
+    checkpoint: ProcessorCheckpoint,
+    options?: WaitOptions,
+  ): Promise<void> => {
+    if (hasProcessed(checkpoint)) return Promise.resolve();
+
+    if (isClosed)
+      return Promise.reject(closedBeforeCheckpointError(checkpoint));
+
+    const awaiter = asyncAwaiter<void>();
+    const waiter = {
+      target: checkpoint,
+      resolve: awaiter.resolve,
+      reject: awaiter.reject,
+    };
+    checkpointWaiters.add(waiter);
+
+    return raceWithTimeout(
+      awaiter.wait,
+      options?.timeout,
+      () =>
+        `Processor ${processorId} with instance id ${instanceId} did not process checkpoint ${checkpoint} within ${options!.timeout}ms (last processed checkpoint: ${lastCheckpoint ?? 'none'})`,
+    ).finally(() => checkpointWaiters.delete(waiter));
+  };
+
+  const init = async (
+    initOptions: WithObservabilityScope<PartialHandlerContext<HandlerContext>>,
+  ): Promise<void> => {
+    if (isInitiated) return;
+
+    if (hooks.onInit === undefined) {
+      isInitiated = true;
+      return;
+    }
+
+    return await processingScope(async (context) => {
+      await hooks.onInit!(context);
+      isInitiated = true;
+    }, initOptions);
+  };
+
+  const close = async (
+    closeOptions: WithObservabilityScope<PartialHandlerContext<HandlerContext>>,
+  ): Promise<void> =>
+    collector.lifecycleScope(
+      EmmettSpans.processor.close,
+      { processorId, instanceId, type },
+      async (closeScope) => {
+        // TODO: Align when active is set to false
+        // if (!isActive) return;
+
+        isActive = false;
+        isClosed = true;
+
+        if (closeSignal) {
+          closeSignal();
+          closeSignal = null;
+        }
+
+        rejectCheckpointWaiters();
+
+        if (isLockAcquired || hooks.onClose) {
+          await processingScope(
+            async (context) => {
+              // released before the close hooks, as those may tear down the
+              // connection the lock is held on
+              const { lock } = lockOptions;
+              if (isLockAcquired && lock) {
+                await context.observabilityScope.scope(
+                  EmmettSpans.processor.releaseLock,
+                  (lockScope) =>
+                    lock.release({ ...context, observabilityScope: lockScope }),
+                );
+                isLockAcquired = false;
+              }
+
+              if (hooks.onClose) await hooks.onClose(context);
+            },
+            { ...closeOptions, observabilityScope: closeScope },
+          );
+        }
+
+        closeScope.log(info(processorIds, 'Processor stopped'));
+      },
+      closeOptions.observabilityScope,
+    );
+
+  return {
+    // TODO: Consider whether not make it optional or add URN prefix
+    id: processorId,
+    instanceId,
+    type,
+    canHandle,
+    init: async (partialOptions) => {
+      partialOptions ??= {};
+      const options: WithObservabilityScope<
+        PartialHandlerContext<HandlerContext>
+      > = {
+        ...partialOptions,
+        // TODO: Consider adding explicit init scope
+        observabilityScope:
+          ('observabilityScope' in partialOptions
+            ? (partialOptions.observabilityScope ?? noopScope)
+            : noopScope) ?? noopScope,
+      };
+
+      await init(options);
+    },
+    start: async (
+      partialOptions?: PartialHandlerContext<HandlerContext>,
+    ): Promise<CurrentMessageProcessorPosition | undefined> => {
+      partialOptions ??= {};
+
+      const callerOptions: WithObservabilityScope<
+        PartialHandlerContext<HandlerContext>
+      > = {
+        ...partialOptions,
+        observabilityScope: partialOptions.observabilityScope ?? noopScope,
+      };
+
+      return collector.lifecycleScope(
+        EmmettSpans.processor.start,
+        { processorId, instanceId, type },
+        async (startScope) => {
+          const startOptions: WithObservabilityScope<
+            PartialHandlerContext<HandlerContext>
+          > = { ...partialOptions, observabilityScope: startScope };
+          const log = startScope.log;
+
+          if (isActive) {
+            log(debug(processorIds, 'Processor already active'));
+            return;
+          }
+
+          log(debug(processorIds, 'Starting processor'));
+
+          await init(startOptions);
+
+          isActive = true;
+          isClosed = false;
+
+          if (closeSignal) closeSignal();
+          closeSignal = onShutdown(() => close(callerOptions));
+
+          const started = (
+            startFrom: 'BEGINNING' | 'END' | 'checkpoint' | 'explicit',
+            checkpoint: ProcessorCheckpoint | null,
+          ) => {
+            const attributes = {
+              ...processorIds,
+              [EmmettAttributes.processor.startFrom]: startFrom,
+              ...(checkpoint !== null
+                ? { [EmmettAttributes.processor.checkpoint]: checkpoint }
+                : {}),
+            };
+            startScope.setAttributes(attributes, { target: 'currentSpan' });
+            log(info(attributes, 'Processor started'));
+          };
+
+          if (lastCheckpoint !== null) {
+            started('checkpoint', lastCheckpoint);
+            return {
+              lastCheckpoint,
+            };
+          }
+
+          return await processingScope(async (context) => {
+            const log = context.observabilityScope.log;
+
+            const { lock } = lockOptions;
+            if (lock) {
+              log(debug(processorIds, 'Acquiring processor lock'));
+              isLockAcquired = await context.observabilityScope.scope(
+                EmmettSpans.processor.acquireLock,
+                (lockScope) =>
+                  acquireProcessorLock(
+                    {
+                      processorId,
+                      lock,
+                      acquisitionPolicy: lockOptions.acquisitionPolicy,
+                    },
+                    { ...context, observabilityScope: lockScope },
+                  ),
+              );
+            }
+
+            const { onStart } = hooks;
+            if (onStart) {
+              log(debug(processorIds, 'Running processor onStart hook'));
+              await context.observabilityScope.scope(
+                EmmettSpans.processor.onStart,
+                (hookScope) =>
+                  onStart({ ...context, observabilityScope: hookScope }),
+              );
+            }
+
+            if (checkpointer) {
+              lastStoredCheckpoint = await context.observabilityScope.scope(
+                EmmettSpans.processor.readCheckpoint,
+                async (readScope) => {
+                  const { lastCheckpoint } = await checkpointer.read(
+                    {
+                      processorId: processorId,
+                      partition,
+                      version,
+                    },
+                    {
+                      ...startOptions,
+                      ...context,
+                      observabilityScope: readScope,
+                    },
+                  );
+                  if (lastCheckpoint !== null)
+                    readScope.setAttributes(
+                      {
+                        [EmmettAttributes.processor.checkpoint]: lastCheckpoint,
+                      },
+                      { target: 'currentSpan' },
+                    );
+                  return lastCheckpoint;
+                },
+              );
+            }
+
+            lastCheckpoint = lastStoredCheckpoint;
+
+            if (lastCheckpoint !== null) {
+              started('checkpoint', lastCheckpoint);
+              return { lastCheckpoint };
+            }
+
+            if (startFrom !== undefined && typeof startFrom !== 'string') {
+              lastCheckpoint = startFrom.lastCheckpoint;
+              started('explicit', startFrom.lastCheckpoint);
+              return startFrom;
+            }
+
+            if (startFrom === 'BEGINNING' || startFrom === 'END') {
+              started(startFrom, null);
+              return startFrom;
+            }
+
+            started('BEGINNING', null);
+            return 'BEGINNING';
+          }, startOptions);
+        },
+        callerOptions.observabilityScope,
+      );
+    },
+    close: async (partialOptions) => {
+      partialOptions ??= {};
+      await close({
+        ...partialOptions,
+        observabilityScope: partialOptions.observabilityScope ?? noopScope,
+      });
+    },
+    get isActive() {
+      return isActive;
+    },
+    whenProcessed,
+    handle: async (
+      messages: RecordedMessage<MessageType, MessageMetadataType>[],
+      partialContext: PartialHandlerContext<HandlerContext>,
+    ): Promise<BatchMessageHandlerResult> => {
+      if (!isActive) return Promise.resolve();
+
+      return collector
+        .startScope(
+          { processorId, type, checkpoint: lastCheckpoint },
+          messages,
+          async (scope) => {
+            let failedBatch:
+              RecordedMessage<MessageType, MessageMetadataType>[] | undefined;
+            try {
+              const result = await processingScope(
+                async (context) => {
+                  const messagesAboveCheckpoint = messages.filter(
+                    (message) => !wasMessageHandled(message, lastCheckpoint),
+                  );
+
+                  const upcastedMessages = messagesAboveCheckpoint
+                    .map((message) =>
+                      upcastRecordedMessage(
+                        // TODO: Make it smarter
+                        message as unknown as RecordedMessage<
+                          MessagePayloadType,
+                          MessageMetadataType
+                        >,
+                        options.messageOptions?.schema?.versioning,
+                      ),
+                    )
+                    .filter(
+                      (upcasted) =>
+                        !canHandle || canHandle.includes(upcasted.type),
+                    );
+
+                  const stopMessageIndex =
+                    isCustomBatch && stopAfter
+                      ? upcastedMessages.findIndex(stopAfter)
+                      : -1;
+
+                  const unhandledMessages =
+                    stopMessageIndex !== -1
+                      ? upcastedMessages.slice(0, stopMessageIndex + 1)
+                      : upcastedMessages;
+
+                  let batchResult: BatchMessageHandlerResult;
+                  try {
+                    batchResult = await eachBatch(unhandledMessages, {
+                      ...context,
+                      observabilityScope: scope,
+                    });
+                  } catch (err) {
+                    if (isCustomBatch) failedBatch = unhandledMessages;
+                    throw err;
+                  }
+
+                  const messageProcessingResult: BatchMessageHandlerResult =
+                    batchResult?.type === 'STOP'
+                      ? batchResult
+                      : stopMessageIndex !== -1
+                        ? {
+                            type: 'STOP',
+                            reason: 'Stop condition reached',
+                            lastSuccessfulMessage:
+                              unhandledMessages[stopMessageIndex],
+                          }
+                        : batchResult;
+
+                  const isStop =
+                    messageProcessingResult &&
+                    messageProcessingResult.type === 'STOP';
+
+                  const checkpointMessage =
+                    messageProcessingResult?.type === 'STOP'
+                      ? messageProcessingResult.lastSuccessfulMessage
+                      : messagesAboveCheckpoint[
+                          messagesAboveCheckpoint.length - 1
+                        ];
+
+                  if (checkpointMessage && checkpointer) {
+                    const storeCheckpointResult: StoreProcessorCheckpointResult =
+                      await checkpointer.store(
+                        {
+                          processorId,
+                          version,
+                          message: checkpointMessage as RecordedMessage<
+                            MessageType,
+                            MessageMetadataType
+                          >,
+                          lastCheckpoint: lastStoredCheckpoint,
+                          partition,
+                        },
+                        context,
+                      );
+
+                    if (storeCheckpointResult.success) {
+                      // TODO: Add correct handling of the storing checkpoint
+                      lastCheckpoint = storeCheckpointResult.newCheckpoint;
+                      lastStoredCheckpoint =
+                        storeCheckpointResult.newCheckpoint;
+                    }
+                  }
+
+                  scope.setAttributes({
+                    [EmmettAttributes.processor.status]:
+                      messageProcessingResult?.type ?? 'ack',
+                  });
+
+                  if (isStop) {
+                    isActive = false;
+                    return messageProcessingResult;
+                  }
+
+                  return undefined;
+                },
+                { ...partialContext, observabilityScope: scope },
+              );
+
+              notifyCheckpointWaiters();
+
+              return result;
+            } catch (err) {
+              scope.log(
+                failedBatch
+                  ? batchHandlingFailed(failedBatch, err)
+                  : LogEvent(
+                      'emmett.processor.exception',
+                      {
+                        body: 'Processor stopped: processing failed',
+                        error: err as Error,
+                        attributes: { ...processorIds, ...checkpointBefore() },
+                      },
+                      { level: 'error' },
+                    ),
+              );
+              throw err;
+            }
+          },
+        )
+        .catch((err): BatchMessageHandlerResult => {
+          isActive = false;
+          return {
+            type: 'STOP',
+            error: err as EmmettError,
+            reason: 'Error during message processing',
+          };
+        });
+    },
+  };
+};
+
+export const projector = <
+  EventType extends Event = Event,
+  EventMetaDataType extends AnyRecordedMessageMetadata =
+    AnyRecordedMessageMetadata,
+  HandlerContext extends AnyMessageHandlerContext = AnyMessageHandlerContext,
+  EventPayloadType extends Event = EventType,
+>(
+  options: ProjectorOptions<
+    EventType,
+    EventMetaDataType,
+    HandlerContext,
+    EventPayloadType
+  >,
+): MessageProcessor<EventType, EventMetaDataType, HandlerContext> => {
+  const {
+    projection,
+    processorId = getProjectorId({
+      projectionName: projection.name ?? 'unknown',
+    }),
+    ...rest
+  } = options;
+
+  return reactor<
+    EventType,
+    EventMetaDataType,
+    HandlerContext,
+    EventPayloadType
+  >({
+    ...rest,
+    type: MessageProcessorType.PROJECTOR,
+    canHandle: projection.canHandle,
+    processorId,
+    messageOptions: options.projection.eventsOptions,
+    hooks: {
+      onInit: options.hooks?.onInit,
+      onStart:
+        (options.truncateOnStart && options.projection.truncate) ||
+        options.hooks?.onStart
+          ? async (context) => {
+              if (options.truncateOnStart && options.projection.truncate)
+                await options.projection.truncate(context);
+
+              if (options.hooks?.onStart) await options.hooks?.onStart(context);
+            }
+          : undefined,
+      onClose: options.hooks?.onClose,
+    },
+    eachBatch: (events, context) => projection.handle(events, context),
+  });
+};

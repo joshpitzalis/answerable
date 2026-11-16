@@ -1,0 +1,24 @@
+{
+  "private": true,
+  "name": "emmett-browser-compatibilty-test",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Emmett's browser compatibility test",
+  "main": "index.js",
+  "scripts": {
+    "serve": "http-server . -p 8080",
+    "test": "playwright install chromium && vitest run"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "express": "^5.3.0",
+    "playwright": "^1.64.1"
+  },
+  "dependencies": {
+    "@event-driven-io/emmett": "0.43.0-beta.54",
+    "http-server": "^14.1.1",
+    "vitest": "^5.0.5"
+  }
+}

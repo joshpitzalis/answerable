@@ -1,0 +1,28 @@
+{
+  "extends": "./tsconfig.shared.json",
+  "compilerOptions": {
+    "moduleResolution": "bundler",
+    "types": [
+      "node",
+      "@cloudflare/vitest-plugin/types",
+      "@cloudflare/workers-types",
+      "./packages/emmett-sqlite/worker-configuration.d.ts"
+    ],
+    "noEmit": true,
+    "paths": {
+      "@event-driven-io/emmett": ["./packages/emmett/src"],
+      "@event-driven-io/almanac": ["./packages/almanac/src"]
+    }
+  },
+  "include": [
+    "packages/emmett-sqlite/worker-configuration.d.ts",
+    "packages/emmett-sqlite/src/storage/durableObject/**/*.int.spec.ts",
+    "packages/emmett-sqlite/src/storage/durableObject/**/*.e2e.spec.ts",
+    "packages/emmett-sqlite/src/storage/durableObject/testing/durableObjectTestWorker.ts"
+  ],
+  "exclude": [],
+  "references": [
+    { "path": "./packages/emmett/" },
+    { "path": "./packages/almanac/" }
+  ]
+}

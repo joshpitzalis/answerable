@@ -1,0 +1,402 @@
+---
+documentationType: reference
+outline: deep
+---
+
+# Fastify Integration
+
+::: warning
+We created this page with the help of the GenAI tool.
+
+We're currently double-checking it to ensure the information is 100% correct and free of hallucinations.
+:::
+
+Emmett's Fastify integration provides a high-performance alternative to Express.js for building event-sourced web APIs.
+
+## Overview
+
+The `@event-driven-io/emmett-fastify` package provides:
+
+- **Fastify server setup** - Sensible defaults with plugin system
+- **Graceful shutdown** - Proper cleanup of connections
+- **Built-in plugins** - ETag, compression, form body parsing
+- **Testing utilities** - Using Fastify's inject method
+
+## Installation
+
+```bash
+npm install @event-driven-io/emmett-fastify
+```
+
+### Peer Dependencies
+
+```bash
+npm install @event-driven-io/emmett fastify
+```
+
+## Quick Start
+
+### Basic Setup
+
+```typescript
+import { startAPI, getFastifyApp } from '@event-driven-io/emmett-fastify';
+import { getInMemoryEventStore } from '@event-driven-io/emmett';
+
+const eventStore = getInMemoryEventStore();
+
+const app = getFastifyApp({
+  apis: [shoppingCartApi(eventStore)],
+});
+
+await startAPI(app, { port: 3000 });
+```
+
+### Defining Routes
+
+```typescript
+import type { FastifyInstance } from 'fastify';
+
+export const shoppingCartApi =
+  (eventStore: EventStore) => async (fastify: FastifyInstance) => {
+    const handle = CommandHandler(eventStore, shoppingCartDecider);
+
+    // GET - Read shopping cart
+    fastify.get('/carts/:cartId', async (request, reply) => {
+      const { cartId } = request.params as { cartId: string };
+
+      const { state, currentStreamVersion } = await eventStore.aggregateStream(
+        `shopping_cart-${cartId}`,
+        { evolve, initialState },
+      );
+
+      if (currentStreamVersion === 0n) {
+        return reply.status(404).send({ detail: 'Cart not found' });
+      }
+
+      return reply.header('ETag', `"${currentStreamVersion}"`).send(state);
+    });
+
+    // POST - Add product item
+    fastify.post('/carts/:cartId/items', async (request, reply) => {
+      const { cartId } = request.params as { cartId: string };
+      const { productId, quantity } = request.body as {
+        productId: string;
+        quantity: number;
+      };
+
+      const result = await handle(cartId, {
+        type: 'AddProductItem',
+        data: { productId, quantity, price: await getPrice(productId) },
+      });
+
+      return reply
+        .header('ETag', `"${result.nextExpectedStreamVersion}"`)
+        .send({ success: true });
+    });
+
+    // POST - Confirm cart
+    fastify.post('/carts/:cartId/confirm', async (request, reply) => {
+      const { cartId } = request.params as { cartId: string };
+
+      await handle(cartId, {
+        type: 'ConfirmShoppingCart',
+        data: { confirmedAt: new Date() },
+      });
+
+      return reply.send({ status: 'Confirmed' });
+    });
+  };
+```
+
+## Complete Example
+
+```typescript
+import { startAPI, getFastifyApp } from '@event-driven-io/emmett-fastify';
+import { getPostgreSQLEventStore } from '@event-driven-io/emmett-postgresql';
+import { CommandHandler } from '@event-driven-io/emmett';
+
+// Define your decider
+const shoppingCartDecider = {
+  decide,
+  evolve,
+  initialState,
+  mapToStreamId: (id: string) => `shopping_cart-${id}`,
+};
+
+// Create event store
+const eventStore = getPostgreSQLEventStore(process.env.DATABASE_URL!);
+
+// Define API
+const shoppingCartApi =
+  (eventStore: EventStore) => async (fastify: FastifyInstance) => {
+    const handle = CommandHandler(shoppingCartDecider, eventStore);
+
+    fastify.post<{
+      Params: { cartId: string };
+      Body: { productId: string; quantity: number };
+    }>('/carts/:cartId/items', async (request, reply) => {
+      const { cartId } = request.params;
+      const { productId, quantity } = request.body;
+
+      const price = await getPriceFromCatalog(productId);
+
+      const result = await handle(cartId, {
+        type: 'AddProductItem',
+        data: { productId, quantity, price },
+      });
+
+      return reply
+        .header('ETag', `"${result.nextExpectedStreamVersion}"`)
+        .status(200)
+        .send({ added: true });
+    });
+  };
+
+// Start server
+const app = getFastifyApp({
+  apis: [shoppingCartApi(eventStore)],
+});
+
+await startAPI(app, { port: 3000 });
+```
+
+## Default Plugins
+
+Emmett's Fastify setup includes these plugins by default:
+
+| Plugin              | Purpose                   |
+| ------------------- | ------------------------- |
+| `@fastify/etag`     | Automatic ETag generation |
+| `@fastify/compress` | Response compression      |
+| `@fastify/formbody` | Form body parsing         |
+
+### Disabling Default Plugins
+
+```typescript
+const app = getFastifyApp({
+  apis: [myApi],
+  disableDefaultPlugins: ['etag', 'compress'],
+});
+```
+
+## Custom Configuration
+
+### Server Options
+
+`serverOptions` takes Fastify's full server options. Fastify's logger is off by default, as in Fastify itself. Turn it on with `logger`, or pass your own logger with `loggerInstance`.
+
+```typescript
+const app = getFastifyApp({
+  apis: [myApi],
+  serverOptions: {
+    logger: true,
+    trustProxy: true,
+    maxParamLength: 200,
+  },
+});
+```
+
+### Custom Plugins
+
+```typescript
+import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
+
+const app = getFastifyApp({
+  apis: [myApi],
+  plugins: [
+    [cors, { origin: true }],
+    [helmet, {}],
+  ],
+});
+```
+
+### Before/After Hooks
+
+```typescript
+const app = getFastifyApp({
+  apis: [myApi],
+  beforeRoutes: async (fastify) => {
+    // Register plugins, decorators, etc.
+    await fastify.register(authPlugin);
+  },
+  afterRoutes: async (fastify) => {
+    // Add error handlers, not-found handlers, etc.
+    fastify.setNotFoundHandler((request, reply) => {
+      reply.status(404).send({ error: 'Not found' });
+    });
+  },
+});
+```
+
+## Graceful Shutdown
+
+Emmett handles graceful shutdown automatically:
+
+```typescript
+await startAPI(app, {
+  port: 3000,
+  onClose: async () => {
+    // Clean up resources
+    await eventStore.close();
+    await database.disconnect();
+  },
+});
+
+// Handles SIGINT, SIGTERM gracefully
+```
+
+## Testing
+
+### Using Fastify Inject
+
+```typescript
+describe('Shopping Cart API', () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    const eventStore = getInMemoryEventStore();
+
+    app = getFastifyApp({
+      apis: [shoppingCartApi(eventStore)],
+    });
+
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('adds product to cart', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/carts/123/items',
+      payload: {
+        productId: 'shoes-1',
+        quantity: 2,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({ added: true });
+  });
+
+  it('returns 404 for missing cart', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/carts/nonexistent',
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+});
+```
+
+### With Different Event Stores
+
+```typescript
+describe('Shopping Cart API (PostgreSQL)', () => {
+  let postgres: StartedPostgreSqlContainer;
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    postgres = await new PostgreSqlContainer().start();
+    const eventStore = getPostgreSQLEventStore(postgres.getConnectionUri());
+
+    app = getFastifyApp({
+      apis: [shoppingCartApi(eventStore)],
+    });
+
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
+    await postgres.stop();
+  });
+
+  // Tests...
+});
+```
+
+## Type Safety
+
+Fastify provides excellent TypeScript support:
+
+```typescript
+import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+
+// Define route schemas
+interface AddItemParams {
+  cartId: string;
+}
+
+interface AddItemBody {
+  productId: string;
+  quantity: number;
+}
+
+interface AddItemResponse {
+  added: boolean;
+  newTotal: number;
+}
+
+fastify.post<{
+  Params: AddItemParams;
+  Body: AddItemBody;
+  Reply: AddItemResponse;
+}>(
+  '/carts/:cartId/items',
+  {
+    schema: {
+      params: {
+        type: 'object',
+        properties: {
+          cartId: { type: 'string' },
+        },
+        required: ['cartId'],
+      },
+      body: {
+        type: 'object',
+        properties: {
+          productId: { type: 'string' },
+          quantity: { type: 'integer', minimum: 1 },
+        },
+        required: ['productId', 'quantity'],
+      },
+    },
+  },
+  async (request, reply) => {
+    // request.params.cartId is typed as string
+    // request.body.productId is typed as string
+    // request.body.quantity is typed as number
+  },
+);
+```
+
+## Return Consistent Errors
+
+Without `mapError`, Fastify keeps its own error format. An `EmmettError` thrown in a route returns its `status`, and the Fastify response body contains its `code`.
+
+Pass `mapError(error, request)` to `getApplication` to return `application/problem+json` using the [Problem Details standard (RFC 9457)](https://www.rfc-editor.org/rfc/rfc9457.html) instead. `getApplication` then registers `problemDetailsErrorHandler(mapError)` as the Fastify error handler. `mapError` translates an application-specific error into a `ProblemDocument`. Returning `undefined` delegates to the default mapping:
+
+<<< @./../packages/emmett-fastify/src/mapError.int.spec.ts#fastify-custom-error-mapping
+
+The default mapping reads the status from `status`, then `statusCode`, then the deprecated `errorCode`. A status outside 100 through 599 becomes 500. Emmett's built-in validation, illegal-state, not-found, and concurrency errors carry the statuses 400, 403, 404, and 412. The default mapping never puts `code`, `details` or `cause` in the response. To add them, see [Add Code, Cause and Details](/guides/error-handling#code-cause-details). A Fastify validation error carries `statusCode` 400, so it becomes a 400 response.
+
+`problemDetailsErrorHandler(mapError?)` is also exported. Pass it to `app.setErrorHandler` when you create the Fastify application yourself:
+
+<<< @./../packages/emmett-fastify/src/mapError.int.spec.ts#fastify-problem-details-error-handler
+
+For deciding whether business logic should throw or return a failure event, see [Error Handling](/guides/error-handling).
+
+## Full Package Documentation
+
+For complete API reference and advanced usage, see the [package README](https://github.com/event-driven-io/emmett/tree/main/src/packages/emmett-fastify).
+
+## See Also
+
+- [Express.js Integration](/frameworks/expressjs) - Alternative framework
+- [Error Handling](/guides/error-handling) - Error patterns
+- [Testing Patterns](/guides/testing) - Testing strategies

@@ -1,0 +1,69 @@
+{
+  "name": "expressjs-with-esdb",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Samples WebApi using Event Sourcing using Emmett, Express.js and EventStoreDB ",
+  "scripts": {
+    "setup": "cat .nvmrc | nvm install; nvm use",
+    "build": "tsdown",
+    "build:ts": "tsc",
+    "build:ts:watch": "tsc -b --watch",
+    "start": "tsx ./src/index.ts",
+    "lint": "npm run lint:eslint && npm run lint:prettier",
+    "lint:prettier": "prettier --cache --check \"**/**/*.{json,md}\"",
+    "lint:eslint": "eslint --cache '**/*.ts'",
+    "fix": "run-s fix:eslint fix:prettier",
+    "fix:prettier": "prettier --cache --write \"**/**/*.{json,md}\"",
+    "fix:eslint": "eslint --cache '**/*.ts' --fix",
+    "test": "run-s test:unit test:int test:e2e",
+    "test:unit": "glob -d -c \"node --import tsx --test\" **/*.unit.spec.ts",
+    "test:int": "glob -d -c \"node --import tsx --test\" **/*.int.spec.ts",
+    "test:e2e": "glob -d -c \"node --import tsx --test\" **/*.e2e.spec.ts",
+    "test:watch": "run-p test:unit:watch test:int:watch test:e2e:watch",
+    "test:unit:watch": "glob -d -c \"node --import tsx --test --watch\" **/*.unit.spec.ts",
+    "test:int:watch": "glob -d -c \"node --import tsx --test --watch\" **/*.int.spec.ts",
+    "test:e2e:watch": "glob -d -c \"node --import tsx --test --watch\" **/*.e2e.spec.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/event-driven-io/emmett.git"
+  },
+  "keywords": [
+    "Event Sourcing"
+  ],
+  "author": "Oskar Dudycz",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/event-driven-io/emmett/issues"
+  },
+  "homepage": "https://github.com/event-driven-io/emmett#readme",
+  "dependencies": {
+    "@event-driven-io/emmett": "0.43.0-beta.13",
+    "@event-driven-io/emmett-esdb": "0.43.0-beta.13",
+    "@event-driven-io/emmett-expressjs": "0.43.0-beta.13",
+    "@event-driven-io/emmett-testcontainers": "0.43.0-beta.13"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^25.6.0",
+    "@typescript-eslint/eslint-plugin": "^8.59.0",
+    "@typescript-eslint/parser": "^8.59.0",
+    "eslint": "^10.2.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.5",
+    "globals": "^17.5.0",
+    "glob": "10.3.10",
+    "npm-run-all2": "6.1.2",
+    "prettier": "^3.8.3",
+    "tsconfig-paths": "4.2.0",
+    "tsx": "4.7.1",
+    "typescript": "^6.0.3",
+    "tsdown": "^0.21.9"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ]
+}

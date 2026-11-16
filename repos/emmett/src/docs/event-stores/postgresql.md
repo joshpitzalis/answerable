@@ -1,0 +1,272 @@
+---
+documentationType: reference
+outline: deep
+---
+
+# PostgreSQL Event Store
+
+::: warning
+We created this page with the help of the GenAI tool.
+
+We're currently double-checking it to ensure the information is 100% correct and free of hallucinations.
+:::
+
+PostgreSQL adapter for Emmett providing persistent event storage with partitioned tables, inline projections, and async message consumers.
+
+## Overview
+
+The PostgreSQL event store is the recommended choice for most production applications. It provides:
+
+- **Persistent storage** with ACID transactions
+- **Inline projections** executing in the same transaction as event appends
+- **Async consumers** with batch processing and checkpointing
+- **Pongo integration** for document-style projections using PostgreSQL JSONB
+- **Multi-tenancy** via table partitioning
+
+## Installation
+
+```bash
+npm install @event-driven-io/emmett-postgresql
+```
+
+### Peer Dependencies
+
+```bash
+npm install @event-driven-io/emmett @event-driven-io/pongo
+```
+
+## Quick Start
+
+### Basic Setup
+
+```typescript
+import { getPostgreSQLEventStore } from '@event-driven-io/emmett-postgresql';
+
+const eventStore = getPostgreSQLEventStore(
+  'postgresql://user:password@localhost:5432/mydb',
+);
+
+// Schema auto-migrates by default
+```
+
+### Appending Events
+
+```typescript
+import { type Event } from '@event-driven-io/emmett';
+
+type ProductItemAdded = Event<
+  'ProductItemAdded',
+  { productId: string; quantity: number; price: number }
+>;
+
+const result = await eventStore.appendToStream<ProductItemAdded>(
+  'ShoppingCart-123',
+  [
+    {
+      type: 'ProductItemAdded',
+      data: { productId: 'shoes-1', quantity: 2, price: 99.99 },
+    },
+  ],
+);
+
+console.log(result.nextExpectedStreamVersion); // 1n
+```
+
+### Reading Events
+
+```typescript
+const { events, currentStreamVersion } =
+  await eventStore.readStream('ShoppingCart-123');
+
+for (const event of events) {
+  console.log(event.type, event.data);
+}
+```
+
+### Aggregating State
+
+```typescript
+const { state } = await eventStore.aggregateStream('ShoppingCart-123', {
+  evolve: (state, event) => {
+    switch (event.type) {
+      case 'ProductItemAdded':
+        return {
+          ...state,
+          items: [...state.items, event.data],
+        };
+      default:
+        return state;
+    }
+  },
+  initialState: () => ({ items: [], status: 'Open' }),
+});
+```
+
+## Inline Projections
+
+Inline projections run within the same transaction as event appends, ensuring consistency.
+
+### Single-Stream Projection
+
+```typescript
+import { pongoSingleStreamProjection } from '@event-driven-io/emmett-postgresql';
+
+interface CartSummary {
+  _id: string;
+  totalItems: number;
+  totalAmount: number;
+}
+
+const cartSummaryProjection = pongoSingleStreamProjection<
+  CartSummary,
+  ShoppingCartEvent
+>({
+  collectionName: 'cart_summaries',
+  canHandle: ['ProductItemAdded', 'ProductItemRemoved'],
+  evolve: (document, event) => {
+    const current = document ?? { totalItems: 0, totalAmount: 0 };
+
+    switch (event.type) {
+      case 'ProductItemAdded':
+        return {
+          ...current,
+          totalItems: current.totalItems + event.data.quantity,
+          totalAmount:
+            current.totalAmount + event.data.price * event.data.quantity,
+        };
+      case 'ProductItemRemoved':
+        return {
+          ...current,
+          totalItems: current.totalItems - event.data.quantity,
+          totalAmount:
+            current.totalAmount - event.data.price * event.data.quantity,
+        };
+    }
+  },
+});
+
+const eventStore = getPostgreSQLEventStore(connectionString, {
+  projections: projections.inline([cartSummaryProjection]),
+});
+```
+
+### Multi-Stream Projection
+
+```typescript
+import { pongoMultiStreamProjection } from '@event-driven-io/emmett-postgresql';
+
+const clientSummaryProjection = pongoMultiStreamProjection<
+  ClientSummary,
+  ShoppingCartEvent
+>({
+  collectionName: 'client_summaries',
+  canHandle: ['ShoppingCartConfirmed'],
+  getDocumentId: (event) => event.metadata.clientId,
+  evolve: (document, event) => ({
+    clientId: event.metadata.clientId,
+    totalOrders: (document?.totalOrders ?? 0) + 1,
+    totalSpent: (document?.totalSpent ?? 0) + event.data.totalAmount,
+  }),
+});
+```
+
+## Async Consumers
+
+To update read models or trigger side effects in the background, build a consumer from the event store and register a projector or a reactor on it:
+
+<<< @/snippets/eventStores/consumers/postgreSQLConsumer.int.spec.ts#postgresql-consumer
+
+`whenCaughtUp()` resolves once every processor has handled what was appended so far, which is what you wait on in tests instead of sleeping.
+
+Call `consumer()` again whenever you want another consumer running its own processors. Each one is independent, so stopping one does not affect the others.
+
+Closing a consumer leaves the event store open. Keep using the store afterwards, and close it when you are done with it:
+
+<<< @/snippets/eventStores/consumers/postgreSQLConsumer.int.spec.ts#postgresql-consumer-close
+
+You can also run a consumer without an event store, straight from a connection string, with `postgreSQLEventStoreConsumer({ connectionString })`. That consumer opens its own connection, so closing it closes the connection too.
+
+## Database Schema
+
+The event store creates three partitioned tables:
+
+| Table               | Purpose                       |
+| ------------------- | ----------------------------- |
+| `emt_streams`       | Stream metadata and positions |
+| `emt_messages`      | Event/message storage (JSONB) |
+| `emt_subscriptions` | Consumer checkpoint tracking  |
+
+## Configuration Options
+
+```typescript
+const eventStore = getPostgreSQLEventStore(connectionString, {
+  // Inline projections
+  projections: projections.inline([projection1, projection2]),
+
+  // Schema migration
+  schema: {
+    autoMigration: 'CreateOrUpdate', // or 'EnsureMigrated', or 'None'
+    databaseSchemaName: 'events',
+    projectionsDatabaseSchemaName: 'read_models',
+    migrationTable: {
+      schemaName: 'infrastructure',
+      tableName: 'emmett_migrations',
+    },
+  },
+
+  // Connection pool
+  connectionOptions: {
+    max: 20,
+    idleTimeoutMillis: 30000,
+  },
+});
+```
+
+### Database Schemas
+
+By default, PostgreSQL objects are created in the database's default schema.
+Set `schema.databaseSchemaName` to put the event-store tables, indexes,
+sequences, functions, processor checkpoints, and projection registrations in a
+specific PostgreSQL schema.
+
+`schema.projectionsDatabaseSchemaName` controls the default schema for
+PostgreSQL projection data such as Pongo collections. If it is omitted, it falls
+back to `schema.databaseSchemaName`. A projection can still override its own
+collection schema.
+
+`schema.migrationTable.schemaName` and `schema.migrationTable.tableName` control
+the shared Dumbo migration table used by the event store and PostgreSQL
+projections. If `schemaName` is omitted, it falls back to
+`schema.databaseSchemaName`.
+
+## Querying Read Models
+
+Use Pongo to query projection data:
+
+```typescript
+import { pongoClient } from '@event-driven-io/pongo';
+
+const pongo = pongoClient(connectionString);
+const cartSummaries = pongo.db().collection<CartSummary>('cart_summaries');
+
+// Find by ID
+const cart = await cartSummaries.findOne({ _id: 'cart-123' });
+
+// Query with filters
+const largeCarts = await cartSummaries
+  .find({ totalAmount: { $gte: 1000 } })
+  .sort({ totalAmount: -1 })
+  .limit(10)
+  .toArray();
+```
+
+## Full Package Documentation
+
+For complete API reference and advanced usage, see the [package README](https://github.com/event-driven-io/emmett/tree/main/src/packages/emmett-postgresql).
+
+## See Also
+
+- [Choosing an Event Store](/guides/choosing-event-store)
+- [Read Models Guide](/guides/projections)
+- [Testing Patterns](/guides/testing)
+- [Getting Started](/getting-started) - Full tutorial with PostgreSQL
