@@ -4,7 +4,7 @@ import type { TableColumn } from "@astryxdesign/core/Table";
 import { pixel, proportional } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 
-import { humanizeDate } from "#/lib/utils/format-date.ts";
+import { humanizeDate } from "#/shared/dates/format-date.ts";
 
 import type { QuestionsTableRow } from "../lib/questionsTable.utils";
 import { QuestionCell } from "./QuestionCell";

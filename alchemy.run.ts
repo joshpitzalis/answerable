@@ -12,8 +12,8 @@ export const Website = Cloudflare.Website.Vite("Website", {
       Config.withDefault(Redacted.make(""))
     ),
   },
-  // playwright.config.ts expects exactly this port.
-  dev: { port: 1337, strictPort: true },
+  // `DEV_PORT` lets e2e (playwright.config.ts, `E2E_PORT`) run beside a dev server.
+  dev: { port: Number(process.env.DEV_PORT ?? 1337), strictPort: true },
   observability: { enabled: true },
 });
 

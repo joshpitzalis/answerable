@@ -6,6 +6,8 @@ import { defineConfig } from "vite";
 
 const config = defineConfig({
   resolve: { tsconfigPaths: true },
+  // Agent worktrees are created under .claude/; each one reloaded a running dev server.
+  server: { watch: { ignored: ["**/.claude/**"] } },
   plugins: [devtools(), tailwindcss(), tanstackStart(), viteReact()],
 });
 

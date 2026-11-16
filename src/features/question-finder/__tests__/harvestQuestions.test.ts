@@ -1,10 +1,11 @@
 import { setImmediate } from "node:timers/promises";
 
-import { Effect, Layer, ManagedRuntime, Option } from "effect";
+import { Effect, Layer, Logger, ManagedRuntime, Option } from "effect";
 import { describe, expect, it } from "vitest";
 import { SimulatedClock } from "xstate";
 
 import type { Project } from "../domain";
+import { funnelLine } from "../domain";
 import { EFFECT_PROJECT } from "../lib/projects.config.example";
 import { Contributions } from "../services/contributions";
 import { Corpus } from "../services/corpus";
@@ -12,8 +13,15 @@ import { Cursors } from "../services/cursors";
 import { Discord } from "../services/discord";
 import { Judge } from "../services/judge";
 import { QuestionStore } from "../services/question-store";
-import { harvestQuestions } from "../workflows/harvestQuestions";
+import { harvestQuestions as harvestReport } from "../workflows/harvestQuestions";
 import { fakeDiscord } from "./discordWire.test-utils";
+
+/** The failed Channels of a Harvest; the funnel tests read the whole report. */
+const harvestQuestions = async (...args: Parameters<typeof harvestReport>) => {
+  const { failed } = await harvestReport(...args);
+
+  return failed;
+};
 
 const XSTATE: Project = {
   channels: [
@@ -847,5 +855,213 @@ describe(harvestQuestions, () => {
     await harvestQuestions(runtime, XSTATE);
 
     await expect(storedIds(runtime, XSTATE)).resolves.toStrictEqual(["200"]);
+  });
+});
+
+describe("a Harvest's funnel", () => {
+  it("counts what each step left, per Channel, and zeros for a Channel with nothing new", async () => {
+    const wire = fakeDiscord({
+      channels: {
+        x1: [
+          { content: "How do actors get stopped?", id: "100" },
+          { content: "Actors are great.", id: "200" },
+          { content: "What is the best pizza topping?", id: "300" },
+          { content: "Why are machine actors lazy?", id: "400" },
+        ],
+        x2: [],
+      },
+      replies: { "400": ["xena"] },
+    });
+
+    const { funnels } = await harvestReport(runtimeOver(wire.fetch), XSTATE);
+
+    expect(funnels).toStrictEqual([
+      {
+        channel: "xstate-help",
+        failure: null,
+        kept: 1,
+        questions: 3,
+        read: 4,
+        unanswered: 2,
+      },
+      {
+        channel: "xstate-chat",
+        failure: null,
+        kept: 0,
+        questions: 0,
+        read: 0,
+        unanswered: 0,
+      },
+    ]);
+  });
+
+  it("reports a failed Channel's step and reason while its sibling reports its counts", async () => {
+    const wire = fakeDiscord({
+      broken: ["x2"],
+      channels: {
+        x1: [{ content: "How do actors get stopped?", id: "100" }],
+        x2: [{ content: "How do actors get spawned?", id: "200" }],
+      },
+    });
+
+    const { failed, funnels } = await harvestReport(
+      runtimeOver(wire.fetch),
+      XSTATE
+    );
+
+    expect(funnels).toStrictEqual([
+      {
+        channel: "xstate-help",
+        failure: null,
+        kept: 1,
+        questions: 1,
+        read: 1,
+        unanswered: 1,
+      },
+      {
+        channel: "xstate-chat",
+        failure: {
+          reason: "GET /channels/x2/messages?limit=50 returned 500",
+          step: "fetching",
+        },
+        kept: 0,
+        questions: 0,
+        read: 0,
+        unanswered: 0,
+      },
+    ]);
+    expect(failed).toStrictEqual([
+      {
+        name: "xstate-chat",
+        reason: "GET /channels/x2/messages?limit=50 returned 500",
+      },
+    ]);
+  });
+
+  it("keeps the counts a Channel reached when a later step fails", async () => {
+    const wire = fakeDiscord({
+      broken: ["100"],
+      channels: { x1: [{ content: "How do actors get stopped?", id: "100" }] },
+    });
+
+    const { funnels } = await harvestReport(runtimeOver(wire.fetch), {
+      ...XSTATE,
+      channels: [{ id: "x1", name: "xstate-help" }],
+    });
+
+    expect(funnels).toStrictEqual([
+      {
+        channel: "xstate-help",
+        failure: {
+          reason: "GET /channels/100/messages?limit=10 returned 500",
+          step: "checkingReplies",
+        },
+        kept: 0,
+        questions: 1,
+        read: 1,
+        unanswered: 0,
+      },
+    ]);
+  });
+
+  it("names the saving step when the store cannot save", async () => {
+    const wire = fakeDiscord({
+      channels: { x1: [{ content: "How do actors get stopped?", id: "100" }] },
+    });
+
+    const { funnels } = await harvestReport(
+      runtimeOver(wire.fetch, storeThatCannotSave),
+      { ...XSTATE, channels: [{ id: "x1", name: "xstate-help" }] }
+    );
+
+    expect(funnels).toMatchObject([
+      { failure: { step: "saving" }, kept: 1, read: 1 },
+    ]);
+  });
+
+  it("counts every post of a forum Channel as a question", async () => {
+    const { funnels } = await harvestReport(
+      runtimeOver(threePosts().fetch),
+      FORUM_PROJECT
+    );
+
+    expect(funnels).toStrictEqual([
+      {
+        channel: "xstate-forum",
+        failure: null,
+        kept: 3,
+        questions: 3,
+        read: 3,
+        unanswered: 3,
+      },
+    ]);
+  });
+
+  it("logs one line per Channel when the Harvest finishes", async () => {
+    const lines: string[] = [];
+
+    const capture = Logger.layer([
+      Logger.make(({ message }) => {
+        lines.push(String(message));
+      }),
+    ]);
+
+    const wire = fakeDiscord({
+      broken: ["x2"],
+      channels: {
+        x1: [
+          { content: "How do actors get stopped?", id: "100" },
+          { content: "Actors are great.", id: "200" },
+        ],
+        x2: [],
+      },
+    });
+
+    const runtime = ManagedRuntime.make(
+      Layer.mergeAll(
+        Discord.layer("token", wire.fetch),
+        Cursors.stub,
+        Contributions.stub,
+        corpus,
+        Judge.stub,
+        QuestionStore.stub,
+        capture
+      )
+    );
+
+    await harvestReport(runtime, XSTATE);
+
+    expect(lines).toStrictEqual([
+      "harvest xstate/xstate-help read=2 questions=1 unanswered=1 kept=1",
+      "harvest xstate/xstate-chat failed in fetching: GET /channels/x2/messages?limit=50 returned 500",
+    ]);
+  });
+});
+
+describe(funnelLine, () => {
+  it("reads as one line for a healthy Channel", () => {
+    expect(
+      funnelLine("xstate", {
+        channel: "help",
+        failure: null,
+        kept: 10,
+        questions: 12,
+        read: 50,
+        unanswered: 11,
+      })
+    ).toBe("harvest xstate/help read=50 questions=12 unanswered=11 kept=10");
+  });
+
+  it("reads as one line for a failed Channel", () => {
+    expect(
+      funnelLine("xstate", {
+        channel: "general",
+        failure: { reason: "GET /x returned 403", step: "fetching" },
+        kept: 0,
+        questions: 0,
+        read: 0,
+        unanswered: 0,
+      })
+    ).toBe("harvest xstate/general failed in fetching: GET /x returned 403");
   });
 });

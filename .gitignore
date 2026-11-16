@@ -31,3 +31,6 @@ reports
 
 # The owner's real Projects; projects.config.example.ts is the template.
 src/features/question-finder/lib/projects.config.ts
+
+# Vitest run output.
+.vitest/

@@ -19,7 +19,7 @@ export const listQuestions = async (
   runtime: ManagedRuntime.ManagedRuntime<HarvestServices, never>,
   project: Project
 ): Promise<QuestionsReply> => {
-  const failedChannels = await harvestQuestions(runtime, project);
+  const { failed: failedChannels } = await harvestQuestions(runtime, project);
 
   const { questions, contributors } = await runtime.runPromise(
     Effect.gen(function* () {
