@@ -4,8 +4,16 @@ import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
 
+import type { ProjectHarvest } from "./src/app/projectHarvest";
+import { workerBuild } from "./src/app/worker.config";
+
 export const Website = Cloudflare.Website.Vite("Website", {
+  ...workerBuild,
   env: {
+    PROJECT_HARVEST: Cloudflare.DurableObject<ProjectHarvest>(
+      "ProjectHarvest",
+      { storage: "sqlite" }
+    ),
     AI: Cloudflare.Workers.AI(),
     // Empty when unset: the question-finder runtime then serves fixture data.
     DISCORD_BOT_TOKEN: Config.Redacted("DISCORD_BOT_TOKEN").pipe(
