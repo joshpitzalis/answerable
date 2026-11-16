@@ -74,7 +74,7 @@ const fingerprint = (message: SourceMessage): string =>
     message.url,
   ]);
 
-const ingestMessage = (
+export const ingestMessage = (
   sql: SqlStorage,
   message: SourceMessage,
   page: PageIngestion
@@ -194,6 +194,12 @@ export const ingestPage = (
       progress.generation ?? 0
     );
 
-    clearRetry(storage.sql, "acquisition", progress.streamId, page.expectedGeneration);
+    clearRetry(
+      storage.sql,
+      "acquisition",
+      progress.streamId,
+      page.expectedGeneration
+    );
+
     return counts;
   });

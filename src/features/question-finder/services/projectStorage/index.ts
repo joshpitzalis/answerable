@@ -9,13 +9,16 @@ import type {
   ProcessingCandidate,
   StoredMessage,
   StoredQuestionsReply,
+  SourceMessage,
 } from "../../domain/harvest.values";
 import type {
   HarvestRetry,
   HarvestSchedule,
 } from "../../domain/schedule.values";
+import type { ForumRequest, ThreadPage } from "../../domain/thread.values";
 import { ingestPage, readMessages } from "./content";
 import { beginCycle, claimAcquisition, claimProcessing } from "./cycle";
+import { nextForumRequest, saveForumStarter, saveThreadPage } from "./forums";
 import {
   completeProcessing,
   invalidateProcessingContext,
@@ -30,7 +33,7 @@ import {
   recordFailure,
 } from "./progress";
 import { readQuestions, saveQuestions } from "./questions";
-import { clearRetry, recordRetry } from "./retries";
+import { recordRetry } from "./retries";
 import {
   completeScheduledBatch,
   readSchedule,
@@ -72,10 +75,22 @@ export class ProjectStorage extends Context.Service<
     readonly retry: (
       failure: HarvestRetry
     ) => Effect.Effect<void, ProjectStorageError>;
-    readonly clearRetry: (
-      kind: HarvestRetry["kind"],
-      workId: string,
-      generation?: number
+    readonly forumRequest: (
+      channelId: string,
+      generation: number
+    ) => Effect.Effect<ForumRequest | undefined, ProjectStorageError>;
+    readonly saveThreadPage: (
+      channelId: string,
+      generation: number,
+      page: ThreadPage,
+      at: number
+    ) => Effect.Effect<boolean, ProjectStorageError>;
+    readonly saveForumStarter: (
+      channelId: string,
+      generation: number,
+      message: SourceMessage,
+      policyRevision: string,
+      at: number
     ) => Effect.Effect<void, ProjectStorageError>;
     readonly beginCycle: Effect.Effect<void, ProjectStorageError>;
     readonly claimAcquisition: (
@@ -156,9 +171,30 @@ export class ProjectStorage extends Context.Service<
               attempt("retry", () => recordRetry(storage, failure, at))
             )
           ),
-        clearRetry: (kind, workId, generation) =>
-          attempt("clearRetry", () =>
-            clearRetry(storage.sql, kind, workId, generation)
+        forumRequest: (channelId, generation) =>
+          attempt("forumRequest", () =>
+            nextForumRequest(storage.sql, channelId, generation)
+          ),
+        saveThreadPage: (channelId, generation, page, at) =>
+          attempt("saveThreadPage", () =>
+            saveThreadPage(storage, channelId, generation, page, at)
+          ),
+        saveForumStarter: (
+          channelId,
+          generation,
+          message,
+          policyRevision,
+          at
+        ) =>
+          attempt("saveForumStarter", () =>
+            saveForumStarter(
+              storage,
+              channelId,
+              generation,
+              message,
+              policyRevision,
+              at
+            )
           ),
         beginCycle: attempt("beginCycle", () => beginCycle(storage.sql)),
         claimAcquisition: (project) =>
@@ -247,7 +283,11 @@ export class ProjectStorage extends Context.Service<
             )
           ),
         read: (project) =>
-          attempt("read", () => readSavedProject(storage.sql, project)),
+          Clock.currentTimeMillis.pipe(
+            Effect.flatMap((at) =>
+              attempt("read", () => readSavedProject(storage.sql, project, at))
+            )
+          ),
       })
     );
 }

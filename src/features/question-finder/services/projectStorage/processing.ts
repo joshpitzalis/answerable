@@ -17,12 +17,15 @@ export const pendingCandidates = (
         policy_revision: string;
         context_revision: string;
         generation: number;
+        thread_title: string | null;
       }
     >(
-      `SELECT messages.*, processing.policy_revision, processing.context_revision, harvest_cycle.generation FROM messages
+      `SELECT messages.*, processing.policy_revision, processing.context_revision, harvest_cycle.generation, discord_threads.title AS thread_title FROM messages
     CROSS JOIN harvest_cycle
-    JOIN processing ON message_id = messages.id WHERE completed = 0 AND deleted_at IS NULL
-    AND parent_channel_id IN (${channelIds.map(() => "?").join(",")})
+    JOIN processing ON message_id = messages.id
+    LEFT JOIN discord_threads ON discord_threads.starter_id=messages.id
+    WHERE completed = 0 AND deleted_at IS NULL
+    AND messages.parent_channel_id IN (${channelIds.map(() => "?").join(",")})
     AND NOT EXISTS (SELECT 1 FROM harvest_retries WHERE kind='processing' AND work_id=message_id AND generation=harvest_cycle.generation AND (exhausted=1 OR next_due>?))
     ORDER BY length(messages.id), messages.id LIMIT ?`,
       ...channelIds,
@@ -35,6 +38,7 @@ export const pendingCandidates = (
       policyRevision: row.policy_revision,
       contextRevision: row.context_revision,
       generation: row.generation,
+      threadTitle: row.thread_title,
     }));
 
 export const countPendingCandidates = (
@@ -116,6 +120,12 @@ export const completeProcessing = (
       saveQuestions(storage.sql, [row]);
     }
 
-    clearRetry(storage.sql, "processing", candidate.message.id, candidate.generation);
+    clearRetry(
+      storage.sql,
+      "processing",
+      candidate.message.id,
+      candidate.generation
+    );
+
     return true;
   });

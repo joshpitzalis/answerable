@@ -23,7 +23,10 @@ describe("manual Harvest cooldown", () => {
         time.now += 10_000;
         await scheduled.request(project);
         const waiting = await scheduled.read(project);
-        expect(waiting.harvest.nextEligibleAt).toBe(initial + 60_000);
+        expect([
+          waiting.harvest.status,
+          waiting.harvest.nextEligibleAt,
+        ]).toStrictEqual(["waiting", initial + 60_000]);
         time.now = initial + 60_000;
         await scheduled.alarm(project);
         time.now += 10_000;

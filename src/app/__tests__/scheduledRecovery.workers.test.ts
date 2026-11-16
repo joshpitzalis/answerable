@@ -113,7 +113,7 @@ describe("scheduled crash recovery", () => {
       Discord.of({
         messagesSince: () => Effect.die("legacy"),
         hasReplyFrom: () => Effect.die("legacy"),
-        messagePage: () =>
+        sourcePage: () =>
           Effect.sync(() => {
             calls += 1;
 

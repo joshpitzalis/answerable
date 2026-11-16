@@ -3,7 +3,7 @@ import { Clock, Effect } from "effect";
 import type { Project } from "../domain";
 import { compareSnowflakes } from "../domain/harvest.values";
 import { advanceMessagePage } from "../domain/pagination.rules";
-import { Discord } from "../services/discord";
+import { Discord, DiscordFailed } from "../services/discord";
 import { ProjectStorage } from "../services/projectStorage";
 
 // A verified message page is four access reads and one page read; one per batch stays within five requests.
@@ -19,16 +19,51 @@ export const acquireStoredPage = (project: Project, policyRevision: string) =>
     const acquire = Effect.gen(function* () {
       const progress = yield* store.progress(turn.channelId);
       const at = yield* Clock.currentTimeMillis;
+      const forum = yield* store.forumRequest(turn.channelId, turn.generation);
 
-      const messages = yield* Discord.use((discord) =>
-        discord.messagePage({
+      const page = yield* Discord.use((discord) =>
+        discord.sourcePage({
           channelId: turn.channelId,
           parentChannelId: turn.channelId,
           serverId: project.serverId,
           before: progress.before,
           limit: 50,
+          forum,
         })
       );
+
+      if ("threads" in page) {
+        const advanced = yield* store.saveThreadPage(
+          turn.channelId,
+          turn.generation,
+          page,
+          at
+        );
+
+        if (!advanced) {
+          return yield* Effect.fail(
+            new DiscordFailed({
+              reason: "Discord archive pagination did not advance",
+            })
+          );
+        }
+
+        return;
+      }
+
+      if ("starter" in page) {
+        yield* store.saveForumStarter(
+          turn.channelId,
+          turn.generation,
+          page.starter,
+          policyRevision,
+          at
+        );
+
+        return;
+      }
+
+      const messages = page;
 
       const selected =
         progress.upperBoundary === null

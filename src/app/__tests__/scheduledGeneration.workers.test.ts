@@ -28,7 +28,7 @@ describe("Harvest generation guards", () => {
         Discord.of({
           messagesSince: () => Effect.die("legacy"),
           hasReplyFrom: () => Effect.die("legacy"),
-          messagePage: () =>
+          sourcePage: () =>
             Effect.gen(function* () {
               if (phase === "acquisition") {
                 yield* hold;

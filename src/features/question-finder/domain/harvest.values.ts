@@ -30,6 +30,7 @@ export interface ProcessingCandidate {
   readonly message: StoredMessage;
   readonly policyRevision: string;
   readonly contextRevision: string;
+  readonly threadTitle?: string | null;
 }
 
 export interface FetchProgress {

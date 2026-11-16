@@ -24,7 +24,7 @@ describe("scheduled batch deadline", () => {
       Discord.of({
         messagesSince: () => Effect.die("legacy"),
         hasReplyFrom: () => Effect.die("legacy"),
-        messagePage: () =>
+        sourcePage: () =>
           Deferred.succeed(started, undefined).pipe(
             Effect.andThen(Effect.never),
             Effect.onInterrupt(() =>

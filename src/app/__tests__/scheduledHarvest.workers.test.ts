@@ -61,7 +61,7 @@ describe("scheduled Harvest", () => {
       Discord.of({
         messagesSince: () => Effect.die("legacy"),
         hasReplyFrom: () => Effect.die("legacy"),
-        messagePage: () =>
+        sourcePage: () =>
           Effect.gen(function* () {
             calls += 1;
             yield* Deferred.succeed(started, undefined);
@@ -106,7 +106,7 @@ describe("scheduled Harvest", () => {
       Discord.of({
         messagesSince: () => Effect.die("legacy"),
         hasReplyFrom: () => Effect.die("legacy"),
-        messagePage: () =>
+        sourcePage: () =>
           Effect.suspend(() => {
             calls += 1;
 

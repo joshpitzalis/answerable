@@ -34,7 +34,7 @@ describe("resumable Harvest pages", () => {
       Discord.of({
         messagesSince: () => Effect.die("legacy"),
         hasReplyFrom: () => Effect.die("no replies"),
-        messagePage: ({ before }) =>
+        sourcePage: ({ before }) =>
           Effect.sync(() => {
             cursors.push(before);
 
@@ -117,7 +117,7 @@ describe("resumable Harvest pages", () => {
       Discord.of({
         messagesSince: () => Effect.die("legacy path"),
         hasReplyFrom: () => Effect.die("no threads"),
-        messagePage: (request) =>
+        sourcePage: (request) =>
           Effect.sync(() => {
             requests.push(request.before);
 

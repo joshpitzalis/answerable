@@ -166,7 +166,7 @@ describe("bounded Harvest deadlines", () => {
       Discord.of({
         messagesSince: () => Effect.die("legacy"),
         hasReplyFrom: () => Effect.die("no replies"),
-        messagePage: () =>
+        sourcePage: () =>
           Effect.sync(() => {
             clock.increment(8000);
 

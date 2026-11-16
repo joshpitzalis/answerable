@@ -142,7 +142,8 @@ const statusOf = (
 
 export const readSavedProject = (
   sql: SqlStorage,
-  project: Project
+  project: Project,
+  at = Date.now()
 ): StoredQuestionsReply => {
   const state = sql
     .exec<StateRow>("SELECT * FROM harvest_state WHERE id=1")
@@ -206,6 +207,23 @@ export const readSavedProject = (
     incomplete || pendingProcessing > 0
   );
 
+  const schedule = sql
+    .exec<{
+      next_due: number | null;
+      last_manual: number | null;
+      run_generation: number | null;
+    }>(
+      "SELECT next_due,last_manual,run_generation FROM harvest_schedule WHERE id=1"
+    )
+    .one();
+
+  const waiting =
+    schedule.run_generation === null &&
+    schedule.next_due !== null &&
+    schedule.next_due > at &&
+    (status === "working" ||
+      (status === "current" && schedule.next_due === schedule.last_manual));
+
   return {
     questions: readQuestions(sql).flatMap((row) => {
       const channel = project.channels.find(
@@ -219,17 +237,13 @@ export const readSavedProject = (
     contributorStats: contributorStats(contributors(sql, ids)),
     failedChannels,
     harvest: {
-      status,
+      status: waiting ? "waiting" : status,
       activatedAt: state.activated_at,
       lastAttempt: state.last_attempt,
       lastCompleteSuccess: state.last_complete_success,
       initialCoverage: "latest-50",
       pendingProcessing,
-      nextEligibleAt: sql
-        .exec<{ next_due: number | null }>(
-          "SELECT next_due FROM harvest_schedule WHERE id=1"
-        )
-        .one().next_due,
+      nextEligibleAt: schedule.next_due,
     },
   };
 };
@@ -239,7 +253,7 @@ export const finishAttempt = (
   project: Project,
   at: number
 ): void => {
-  if (readSavedProject(sql, project).harvest.status === "current") {
+  if (readSavedProject(sql, project, at).harvest.status === "current") {
     sql.exec("UPDATE harvest_state SET last_complete_success=? WHERE id=1", at);
     sql.exec("UPDATE harvest_cycle SET active=0 WHERE id=1");
   }

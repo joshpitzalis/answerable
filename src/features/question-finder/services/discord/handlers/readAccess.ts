@@ -64,11 +64,11 @@ export const requireMessageAccess = Effect.fn("Discord.requireMessageAccess")(
     if (
       channel.guild_id !== serverId ||
       channel.id !== channelId ||
-      channel.type !== 0
+      (channel.type !== 0 && channel.type !== 15 && channel.type !== 16)
     ) {
       return yield* Effect.fail(
         new DiscordFailed({
-          reason: "Discord source is not the configured text Channel",
+          reason: "Discord source is not a configured text or forum Channel",
         })
       );
     }
@@ -84,7 +84,7 @@ export const requireMessageAccess = Effect.fn("Discord.requireMessageAccess")(
     ).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Member)));
 
     if (guild.owner_id === application.bot.id) {
-      return;
+      return channel.type;
     }
 
     let permissions = guild.roles
@@ -92,7 +92,7 @@ export const requireMessageAccess = Effect.fn("Discord.requireMessageAccess")(
       .reduce((bits, role) => bits | BigInt(role.permissions), 0n);
 
     if ((permissions & ADMINISTRATOR) !== 0n) {
-      return;
+      return channel.type;
     }
 
     const everyone = channel.permission_overwrites.find(
@@ -126,6 +126,8 @@ export const requireMessageAccess = Effect.fn("Discord.requireMessageAccess")(
         new DiscordFailed({ reason: "Discord message history is unavailable" })
       );
     }
+
+    return channel.type;
   },
   Effect.catchTag("SchemaError", () =>
     Effect.fail(

@@ -92,7 +92,7 @@ export const completeScheduledBatch = (
   project: Project,
   at: number
 ): number => {
-  const saved = readSavedProject(sql, project);
+  const saved = readSavedProject(sql, project, at);
   const schedule = readSchedule(sql);
 
   const work = nextWork(

@@ -33,7 +33,7 @@ describe("Harvest fairness", () => {
       Discord.of({
         messagesSince: () => Effect.die("legacy"),
         hasReplyFrom: () => Effect.die("no replies"),
-        messagePage: ({ channelId }) =>
+        sourcePage: ({ channelId }) =>
           Effect.sync(() => {
             requests.push(channelId);
 
@@ -91,7 +91,7 @@ describe("Harvest fairness", () => {
       Discord.of({
         messagesSince: () => Effect.die("legacy"),
         hasReplyFrom: () => Effect.die("no replies"),
-        messagePage: ({ channelId }) =>
+        sourcePage: ({ channelId }) =>
           channelId === "800"
             ? Effect.fail(new DiscordFailed({ reason: "denied" }))
             : Effect.succeed([

@@ -38,7 +38,7 @@ describe("persisted Discord pause scope", () => {
         Discord.of({
           messagesSince: () => Effect.die("legacy"),
           hasReplyFrom: () => Effect.die("legacy"),
-          messagePage: (request) =>
+          sourcePage: (request) =>
             Effect.suspend(() => {
               calls.push(request.channelId);
 
