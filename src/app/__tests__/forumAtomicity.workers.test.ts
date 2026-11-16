@@ -52,12 +52,14 @@ describe("forum starter transaction", () => {
     await runInDurableObject(stub, (_instance, state) => {
       state.storage.sql.exec("DROP TRIGGER reject_starter");
     });
+
     const saved = await withHarvestRuntime(
       stub,
       Discord.layer("invented", wire.fetch),
       Judge.everythingAnswerable,
       (runtime) => harvestStoredProject(runtime, project, "live")
     );
+
     expect(saved.questions).toMatchObject([{ id: "101" }]);
     expect(saved.harvest.status).toBe("current");
   });
