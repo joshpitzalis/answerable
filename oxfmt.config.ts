@@ -9,6 +9,7 @@ export default defineConfig({
     "AGENTS.md",
     // Vendored; reformatting it would break three-way merges with upstream.
     "tools/oxlint/anti-slop/**",
+    "repos/**",
     ".stryker-tmp/**",
     "reports/**",
     // Course material kept beside the app; it is not app code.

@@ -2,6 +2,11 @@
 
 Project-specific guidance for AI coding agents.
 
+## Library source references
+
+- `repos/emmett/` is a squashed Git subtree of https://github.com/event-driven-io/emmett (branch `main`), kept as reference source for agents. Read its README, `src/` and `samples/` when working with Emmett APIs; do not import it into the app or edit the vendored files.
+- Update from a clean tracked working tree with `git subtree pull --prefix=repos/emmett https://github.com/event-driven-io/emmett.git main --squash`. Subtree operations create commits. The imported revision is recorded in the subtree commit's `git-subtree-split` trailer.
+
 ## Coding standards
 
 Read [CODING_STANDARDS.md](CODING_STANDARDS.md) before adding, moving, testing or reviewing code: feature layout under `src/features/`, where each kind of code goes, file growth, tests, clickable surfaces and comments.
