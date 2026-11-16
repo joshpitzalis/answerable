@@ -22,7 +22,7 @@ export const toMessage = (
   fallbackServerId: string
 ): DiscordMessage => ({
   id: raw.id,
-  threadId: raw.thread?.id ?? raw.id,
+  threadId: raw.thread?.id ?? null,
   authorAvatarUrl: avatarUrlOf(raw),
   authorIsBot: raw.author.bot === true,
   authorName: authorNameOf(raw),

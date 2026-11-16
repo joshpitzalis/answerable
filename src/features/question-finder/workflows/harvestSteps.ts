@@ -59,11 +59,15 @@ export const dropRepliedThreads = (input: {
   readonly project: Project;
   readonly messages: readonly DiscordMessage[];
 }) =>
-  Effect.filter(input.messages, (message) =>
-    Discord.use((discord) =>
-      discord.hasReplyFrom(message.threadId, input.project.ownerName)
-    ).pipe(Effect.map((replied) => !replied))
-  );
+  Effect.filter(input.messages, (message) => {
+    const { threadId } = message;
+
+    return threadId === null
+      ? Effect.succeed(true)
+      : Discord.use((discord) =>
+          discord.hasReplyFrom(threadId, input.project.ownerName)
+        ).pipe(Effect.map((replied) => !replied));
+  });
 
 export const keepAnswerable = (input: {
   readonly project: Project;

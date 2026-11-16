@@ -1,11 +1,11 @@
 import { Schema } from "effect";
 
-/** Discord snowflake. Sorts lexicographically by time, which is why it works as a cursor. */
+/** Discord snowflake; keep it as text to avoid Number precision loss. */
 export type Snowflake = string;
 
 export const DiscordMessage = Schema.Struct({
   id: Schema.String,
-  threadId: Schema.String,
+  threadId: Schema.NullOr(Schema.String),
   authorName: Schema.String,
   /** Discord marks bot and webhook accounts; they are not counted as contributors. */
   authorIsBot: Schema.Boolean,

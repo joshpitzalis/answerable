@@ -12,7 +12,7 @@ const RAW = {
 };
 
 describe(toMessage, () => {
-  it("falls back to the message itself and the given server when there is no thread", () => {
+  it("has no thread and uses the given server when there is no thread", () => {
     expect(toMessage(RAW, "42")).toStrictEqual({
       authorAvatarUrl: null,
       authorIsBot: false,
@@ -22,7 +22,7 @@ describe(toMessage, () => {
       id: "9",
       isPost: false,
       replyCount: 0,
-      threadId: "9",
+      threadId: null,
       url: "https://discord.com/channels/42/7/9",
     });
   });

@@ -5,6 +5,7 @@
  */
 
 export interface WireMessage {
+  readonly threadId?: string;
   readonly id: string;
   readonly content: string;
   /** Display name of the author; "ada" when left out. */
@@ -76,11 +77,12 @@ const raw = (
   channelId: string,
   id: string,
   content: string,
-  who: Pick<WireMessage, "author" | "authorId" | "avatar" | "bot">
+  who: Pick<WireMessage, "author" | "authorId" | "avatar" | "bot" | "threadId">
 ) => {
   const username = who.author ?? "ada";
 
   return {
+    thread: who.threadId === undefined ? undefined : { id: who.threadId },
     author: {
       avatar: who.avatar,
       bot: who.bot === true ? true : undefined,
