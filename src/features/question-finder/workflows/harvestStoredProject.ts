@@ -1,20 +1,18 @@
 import { Clock, Effect } from "effect";
 import type { ManagedRuntime } from "effect";
-import { createActor, setup, toPromise } from "xstate";
+import { createActor, setup, toPromise, types } from "xstate";
 
 import type { Channel, Project } from "../domain";
-import { looksLikeAQuestion, toRow } from "../domain";
 import {
   activationBoundary,
   compareSnowflakes,
-  processingPolicy,
 } from "../domain/harvest.values";
-import type { ProcessingCandidate } from "../domain/harvest.values";
-import { Corpus } from "../services/corpus";
+import type { Corpus, Post } from "../services/corpus";
 import { Discord } from "../services/discord";
-import { Judge } from "../services/judge";
+import type { Judge } from "../services/judge";
 import { ProjectStorage } from "../services/projectStorage";
 import { fromEffect } from "./fromEffect";
+import { prepareProcessing, processCandidate } from "./processStoredCandidates";
 
 export type StoredHarvestServices = ProjectStorage | Discord | Judge | Corpus;
 
@@ -79,80 +77,44 @@ const seedChannel = (
     )
   );
 
-const processCandidate = (project: Project, candidate: ProcessingCandidate) =>
-  Effect.gen(function* () {
-    const store = yield* ProjectStorage;
-
-    const channel = project.channels.find(
-      (item) => item.id === candidate.message.parentChannelId
-    );
-
-    if (channel === undefined) {
-      return;
-    }
-
-    const message = {
-      ...candidate.message,
-      createdAt: new Date(candidate.message.createdAt),
-    };
-
-    if (!looksLikeAQuestion(message)) {
-      yield* store.complete(candidate, null);
-
-      return;
-    }
-
-    const posts = yield* Corpus.use((corpus) => corpus.all(project.id));
-
-    const verdict = yield* Judge.use((judge) =>
-      judge.answerable(message.content, posts)
-    );
-
-    yield* store.complete(
-      candidate,
-      verdict.answerable ? toRow(message, project, channel) : null
-    );
-  }).pipe(
-    Effect.catchTag("JudgeFailed", () =>
-      ProjectStorage.use((store) =>
-        store.fail(
-          candidate.message.parentChannelId,
-          "Saved messages could not be judged"
-        )
-      )
-    )
-  );
-
 export const harvestStoredProject = async (
   runtime: ManagedRuntime.ManagedRuntime<StoredHarvestServices, never>,
   project: Project,
   mode: "live" | "fixture"
 ) => {
-  const saved = await runtime.runPromise(readStoredProject(project));
-
-  if (
-    saved.harvest.status === "current" &&
-    saved.harvest.lastCompleteSuccess !== null
-  ) {
-    return saved;
-  }
-
   const machine = setup({
+    schemas: {
+      context: types<{ posts: readonly Post[]; policyRevision: string }>(),
+    },
     actors: {
+      prepare: fromEffect(runtime, () =>
+        Effect.gen(function* () {
+          yield* readStoredProject(project);
+          const prepared = yield* prepareProcessing(project, mode);
+          const saved = yield* readStoredProject(project);
+
+          return {
+            ...prepared,
+            current:
+              saved.harvest.status === "current" &&
+              saved.harvest.lastCompleteSuccess !== null,
+          };
+        })
+      ),
       activate: fromEffect(runtime, () =>
         Effect.gen(function* () {
           const at = yield* Clock.currentTimeMillis;
           yield* ProjectStorage.use((store) => store.activate(project, at));
         })
       ),
-      acquire: fromEffect(runtime, () =>
+      acquire: fromEffect(runtime, (policyRevision: string) =>
         Effect.forEach(
           project.channels,
-          (channel) => seedChannel(project, channel, processingPolicy(mode)),
+          (channel) => seedChannel(project, channel, policyRevision),
           { discard: true }
         )
       ),
-      process: fromEffect(runtime, () =>
+      process: fromEffect(runtime, (posts: readonly Post[]) =>
         Effect.gen(function* () {
           const pending = yield* ProjectStorage.use((store) =>
             store.pending(project.channels.map((channel) => channel.id))
@@ -160,7 +122,7 @@ export const harvestStoredProject = async (
 
           yield* Effect.forEach(
             pending,
-            (candidate) => processCandidate(project, candidate),
+            (candidate) => processCandidate(project, candidate, posts),
             { concurrency: 4, discard: true }
           );
         })
@@ -173,8 +135,22 @@ export const harvestStoredProject = async (
       ),
     },
   }).createMachine({
-    initial: "activating",
+    context: { posts: [], policyRevision: "" },
+    initial: "preparing",
     states: {
+      preparing: {
+        invoke: {
+          src: "prepare",
+          input: undefined,
+          onDone: ({ event }) => ({
+            target: event.output.current ? "done" : "activating",
+            context: {
+              posts: event.output.posts,
+              policyRevision: event.output.policyRevision,
+            },
+          }),
+        },
+      },
       activating: {
         invoke: {
           src: "activate",
@@ -185,14 +161,14 @@ export const harvestStoredProject = async (
       acquiring: {
         invoke: {
           src: "acquire",
-          input: undefined,
+          input: ({ context }) => context.policyRevision,
           onDone: () => ({ target: "processing" }),
         },
       },
       processing: {
         invoke: {
           src: "process",
-          input: undefined,
+          input: ({ context }) => context.posts,
           onDone: () => ({ target: "finishing" }),
         },
       },

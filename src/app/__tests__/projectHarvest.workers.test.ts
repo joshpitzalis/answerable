@@ -92,6 +92,11 @@ describe("Project storage in the Workers runtime", () => {
     await stub.saveQuestions([question]);
     await runInDurableObject(stub, (_instance, state) => {
       migrateProjectStorage(state.storage);
+
+      const originalVersion = state.storage.sql
+        .exec<{ version: number }>("SELECT version FROM schema_version")
+        .one().version;
+
       expect(() =>
         migrateProjectStorage(state.storage, [
           ...projectMigrations,
@@ -102,7 +107,7 @@ describe("Project storage in the Workers runtime", () => {
         state.storage.sql
           .exec<{ version: number }>("SELECT version FROM schema_version")
           .one().version
-      ).toBe(2);
+      ).toBe(originalVersion);
       expect(
         state.storage.sql
           .exec("SELECT name FROM sqlite_master WHERE name = 'migration_probe'")
@@ -119,7 +124,7 @@ describe("Project storage in the Workers runtime", () => {
         state.storage.sql
           .exec<{ version: number }>("SELECT version FROM schema_version")
           .one().version
-      ).toBe(3);
+      ).toBe(originalVersion + 1);
     });
     await expect(stub.readQuestions()).resolves.toStrictEqual([question]);
   });

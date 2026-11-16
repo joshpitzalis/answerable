@@ -5,7 +5,8 @@ import type {
   HarvestStatus,
   StoredQuestionsReply,
 } from "../../domain/harvest.values";
-import { pendingCandidates, readMessages } from "./content";
+import { readMessages } from "./content";
+import { countPendingCandidates } from "./processing";
 import { readQuestions } from "./questions";
 
 // oxlint-disable-next-line typescript/consistent-type-definitions -- SQLite rows require an implicit index signature.
@@ -172,7 +173,7 @@ export const readSavedProject = (
       : [{ name: channel.name, reason: row.failure }];
   });
 
-  const pendingProcessing = pendingCandidates(sql, ids).length;
+  const pendingProcessing = countPendingCandidates(sql, ids);
 
   const incomplete =
     progress.length < ids.length ||

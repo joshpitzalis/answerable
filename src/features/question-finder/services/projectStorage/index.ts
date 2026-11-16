@@ -9,12 +9,13 @@ import type {
   StoredMessage,
   StoredQuestionsReply,
 } from "../../domain/harvest.values";
+import { ingestPage, readMessages } from "./content";
 import {
   completeProcessing,
-  ingestPage,
+  invalidateProcessingContext,
   pendingCandidates,
-  readMessages,
-} from "./content";
+  reprocessCandidates,
+} from "./processing";
 import {
   activateProject,
   finishAttempt,
@@ -61,11 +62,20 @@ export class ProjectStorage extends Context.Service<
     ) => Effect.Effect<IngestionCounts, ProjectStorageError>;
     readonly messages: Effect.Effect<StoredMessage[], ProjectStorageError>;
     readonly pending: (
-      channelIds: readonly string[]
+      channelIds: readonly string[],
+      limit?: number
     ) => Effect.Effect<ProcessingCandidate[], ProjectStorageError>;
     readonly complete: (
       candidate: ProcessingCandidate,
       row: QuestionsRow | null
+    ) => Effect.Effect<boolean, ProjectStorageError>;
+    readonly reprocess: (
+      channelIds: readonly string[],
+      policyRevision: string
+    ) => Effect.Effect<number, ProjectStorageError>;
+    readonly invalidateContext: (
+      messageId: string,
+      revision: string
     ) => Effect.Effect<boolean, ProjectStorageError>;
     readonly fail: (
       streamId: string,
@@ -119,11 +129,19 @@ export class ProjectStorage extends Context.Service<
         ingestPage: (page) =>
           attempt("ingestPage", () => ingestPage(storage, page)),
         messages: attempt("messages", () => readMessages(storage.sql)),
-        pending: (ids) =>
-          attempt("pending", () => pendingCandidates(storage.sql, ids)),
+        pending: (ids, limit = 20) =>
+          attempt("pending", () => pendingCandidates(storage.sql, ids, limit)),
         complete: (candidate, row) =>
           attempt("complete", () =>
             completeProcessing(storage, candidate, row)
+          ),
+        reprocess: (ids, policyRevision) =>
+          attempt("reprocess", () =>
+            reprocessCandidates(storage.sql, ids, policyRevision)
+          ),
+        invalidateContext: (messageId, revision) =>
+          attempt("invalidateContext", () =>
+            invalidateProcessingContext(storage.sql, messageId, revision)
           ),
         fail: (id, reason) =>
           attempt("fail", () => recordFailure(storage.sql, id, reason)),
