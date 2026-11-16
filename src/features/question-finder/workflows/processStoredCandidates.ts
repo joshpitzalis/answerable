@@ -12,7 +12,7 @@ import { ProjectStorage } from "../services/projectStorage";
 export const prepareProcessing = (project: Project, mode: "live" | "fixture") =>
   Effect.gen(function* () {
     const { posts, revision } = yield* Corpus.snapshot(project.id);
-    const policyRevision = processingPolicy(mode, revision);
+    const policyRevision = processingPolicy(mode, revision, project.ownerName);
     yield* ProjectStorage.use((store) =>
       store.reprocess(
         project.channels.map((channel) => channel.id),
@@ -26,7 +26,8 @@ export const prepareProcessing = (project: Project, mode: "live" | "fixture") =>
 export const processCandidate = (
   project: Project,
   candidate: ProcessingCandidate,
-  posts: readonly Post[]
+  posts: readonly Post[],
+  mode: "live" | "fixture"
 ) =>
   Effect.gen(function* () {
     const store = yield* ProjectStorage;
@@ -41,6 +42,7 @@ export const processCandidate = (
 
     const message = {
       ...candidate.message,
+      replyCount: candidate.replyCount ?? candidate.message.replyCount,
       content:
         candidate.threadTitle === null || candidate.threadTitle === undefined
           ? candidate.message.content
@@ -48,7 +50,11 @@ export const processCandidate = (
       createdAt: new Date(candidate.message.createdAt),
     };
 
-    if (!looksLikeAQuestion(message)) {
+    if (
+      !looksLikeAQuestion(message) ||
+      (mode === "fixture" &&
+        candidate.replyAuthors?.includes(project.ownerName))
+    ) {
       yield* store.complete(candidate, null);
 
       return;

@@ -30,6 +30,8 @@ export interface ProcessingCandidate {
   readonly policyRevision: string;
   readonly contextRevision: string;
   readonly threadTitle?: string | null;
+  readonly replyCount?: number;
+  readonly replyAuthors?: readonly string[];
 }
 
 export interface FetchProgress {
@@ -83,8 +85,9 @@ export const activationBoundary = (at: number): string =>
 
 export const processingPolicy = (
   mode: "live" | "fixture",
-  evidenceRevision = "v1"
+  evidenceRevision = "v1",
+  ownerName = ""
 ): string =>
   mode === "live"
     ? "question-mark-v1:accept-all-v1:replies-off"
-    : `question-mark-v1:fixture-judge-v1:evidence-${evidenceRevision}:replies-pending`;
+    : `question-mark-v1:fixture-judge-v1:evidence-${evidenceRevision}:stored-replies-v1:${JSON.stringify(ownerName)}`;

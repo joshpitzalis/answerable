@@ -11,7 +11,11 @@ import type {
   StoredQuestionsReply,
   SourceMessage,
 } from "../../domain/harvest.values";
-import type { ForumRequest, ThreadPage } from "../../domain/thread.values";
+import type {
+  DiscordThread,
+  ForumRequest,
+  ThreadPage,
+} from "../../domain/thread.values";
 import { ingestPage, readMessages } from "./content";
 import { beginCycle, claimAcquisition, claimProcessing } from "./cycle";
 import { nextForumRequest, saveForumStarter, saveThreadPage } from "./forums";
@@ -29,6 +33,7 @@ import {
   recordFailure,
 } from "./progress";
 import { readQuestions, saveQuestions } from "./questions";
+import { saveThreadMessages } from "./threadMessages";
 
 export { migrateProjectStorage, projectMigrations } from "./migrations";
 
@@ -46,6 +51,13 @@ const attempt = <A>(operation: string, body: () => A) =>
 export class ProjectStorage extends Context.Service<
   ProjectStorage,
   {
+    readonly saveThreadMessages: (
+      thread: DiscordThread,
+      generation: number,
+      messages: readonly SourceMessage[],
+      policyRevision: string,
+      at: number
+    ) => Effect.Effect<boolean, ProjectStorageError>;
     readonly forumRequest: (
       channelId: string,
       generation: number
@@ -123,6 +135,23 @@ export class ProjectStorage extends Context.Service<
     Layer.succeed(
       ProjectStorage,
       ProjectStorage.of({
+        saveThreadMessages: (
+          thread,
+          generation,
+          messages,
+          policyRevision,
+          at
+        ) =>
+          attempt("saveThreadMessages", () =>
+            saveThreadMessages(
+              storage,
+              thread,
+              generation,
+              messages,
+              policyRevision,
+              at
+            )
+          ),
         forumRequest: (channelId, generation) =>
           attempt("forumRequest", () =>
             nextForumRequest(storage.sql, channelId, generation)

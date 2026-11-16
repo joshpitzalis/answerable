@@ -10,8 +10,8 @@ import { ingestMessage } from "./content";
 import { readCycle } from "./cycle";
 import { finishDiscovery, fromThread, saveThread, scan } from "./forumState";
 import type { ThreadRow } from "./forumState";
-import { invalidateProcessingContext } from "./processing";
 import { readProgress } from "./progress";
+import { invalidateThreadContext } from "./threadContext";
 
 export const nextForumRequest = (
   sql: SqlStorage,
@@ -25,7 +25,7 @@ export const nextForumRequest = (
     previous.generation !== generation ||
     previous.active_done === 0
   ) {
-    return undefined;
+    return readProgress(sql, channelId).generation === generation ? { kind: "active" } : undefined;
   }
 
   if (previous.archive_done === 0) {
@@ -34,14 +34,29 @@ export const nextForumRequest = (
 
   const [pending] = sql
     .exec<ThreadRow>(
-      "SELECT * FROM discord_threads WHERE parent_channel_id=? AND starter_pending=1 ORDER BY length(id),id LIMIT 1",
-      channelId
+      `SELECT * FROM discord_threads WHERE parent_channel_id=?
+      AND (starter_pending=1 OR collect_pending=1 OR (archived=0 AND collected_generation<?))
+      ORDER BY last_selected,length(id),id LIMIT 1`,
+      channelId,
+      generation
     )
     .toArray();
 
-  return pending === undefined
-    ? undefined
-    : { kind: "starter", thread: fromThread(pending) };
+  if (pending === undefined) {
+    return undefined;
+  }
+  sql.exec(
+    "UPDATE discord_threads SET last_selected=(SELECT COALESCE(MAX(last_selected),0)+1 FROM discord_threads) WHERE id=?",
+    pending.id
+  );
+
+  return pending.starter_pending === 1
+    ? { kind: "starter", thread: fromThread(pending) }
+    : {
+        kind: "messages",
+        thread: fromThread(pending),
+        before: readProgress(sql, pending.id).before,
+      };
 };
 
 export const saveThreadPage = (
@@ -72,7 +87,7 @@ export const saveThreadPage = (
       ];
 
       const selected =
-        previous === undefined
+        previous === undefined && page.isForum !== false
           ? unique
               .toSorted((a, b) => compareSnowflakes(b.id, a.id))
               .slice(0, 50)
@@ -84,7 +99,8 @@ export const saveThreadPage = (
                 ) >= 0 ||
                 sql
                   .exec("SELECT id FROM discord_threads WHERE id=?", thread.id)
-                  .toArray().length > 0
+                  .toArray().length > 0 ||
+                (page.isForum === false && sql.exec("SELECT id FROM messages WHERE id=? AND parent_channel_id=?", thread.starterId, channelId).toArray().length > 0)
             );
 
       for (const thread of selected) {
@@ -167,7 +183,7 @@ export const saveForumStarter = (
       )
       .one();
 
-    if (message.channelId !== row.id || message.threadId !== row.id) {
+    if (message.channelId !== (row.is_post === 1 ? row.id : row.parent_channel_id) || message.threadId !== row.id) {
       throw new Error("Forum starter belongs to another thread");
     }
 
@@ -177,7 +193,7 @@ export const saveForumStarter = (
       policyRevision,
       progress: readProgress(sql, channelId),
     });
-    invalidateProcessingContext(sql, message.id, JSON.stringify([row.title]));
+    invalidateThreadContext(sql, message.id);
     sql.exec("UPDATE discord_threads SET starter_pending=0 WHERE id=?", row.id);
     finishDiscovery(sql, channelId, generation, at);
   });

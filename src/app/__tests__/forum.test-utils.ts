@@ -15,12 +15,24 @@ export const forumWire = () => {
   const requests: URL[] = [];
 
   const state = {
+    channelType: 15,
     active,
     archives: new Map<
       string,
       { threads: ReturnType<typeof forumThread>[]; has_more: boolean }
     >(),
     missing: new Set<string>(),
+    messages: new Map<
+      string,
+      {
+        id: string;
+        channel_id: string;
+        content: string;
+        timestamp: string;
+        author: { id: string; username: string; bot?: boolean };
+        webhook_id?: string;
+      }[]
+    >(),
     requests,
   };
 
@@ -41,7 +53,7 @@ export const forumWire = () => {
         Response.json({
           id: "800",
           guild_id: "700",
-          type: 15,
+          type: state.channelType,
           permission_overwrites: [],
         }),
       ],
@@ -64,6 +76,25 @@ export const forumWire = () => {
             threads: [],
             has_more: false,
           }
+        )
+      );
+    }
+
+    const stream = /^\/channels\/(?<id>\d+)\/messages$/u.exec(path)?.groups?.id;
+
+    if (stream !== undefined) {
+      const before = url.searchParams.get("before");
+      const messages = state.messages.get(stream) ?? [];
+
+      return Promise.resolve(
+        Response.json(
+          messages
+            .filter(
+              (message) =>
+                before === null || BigInt(message.id) < BigInt(before)
+            )
+            .toSorted((a, b) => (BigInt(a.id) > BigInt(b.id) ? -1 : 1))
+            .slice(0, Number(url.searchParams.get("limit") ?? 50))
         )
       );
     }

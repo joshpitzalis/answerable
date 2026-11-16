@@ -32,6 +32,25 @@ export const acquireStoredPage = (project: Project, policyRevision: string) =>
         })
       );
 
+      if ("messages" in page) {
+        const advanced = yield* store.saveThreadMessages(
+          page.thread,
+          turn.generation,
+          page.messages,
+          policyRevision,
+          at
+        );
+
+        if (!advanced) {
+          return yield* Effect.fail(
+            new DiscordFailed({
+              reason: "Discord thread pagination did not advance",
+            })
+          );
+        }
+        return;
+      }
+
       if ("threads" in page) {
         const advanced = yield* store.saveThreadPage(
           turn.channelId,

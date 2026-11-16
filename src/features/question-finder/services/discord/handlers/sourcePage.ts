@@ -48,21 +48,36 @@ export const sourcePage = Effect.fn("Discord.sourcePage")(function* (
     fetch
   );
 
-  if (type === 0) {
-    if (request.forum !== undefined) {
+  if (request.forum?.kind === "messages") {
+    const { thread, before } = request.forum;
+
+    if (thread.parentChannelId !== request.parentChannelId) {
       return yield* Effect.fail(
-        new DiscordFailed({ reason: "Discord Channel is no longer a forum" })
+        new DiscordFailed({
+          reason: "Discord thread belongs to another Channel",
+        })
       );
     }
 
+    const messages = yield* readMessagePage(
+      { ...request, channelId: thread.id, before },
+      token,
+      fetch
+    );
+
+    return { thread, messages };
+  }
+
+  if (type === 0 && request.forum === undefined) {
     return yield* readMessagePage(request, token, fetch);
   }
 
   if (request.forum?.kind === "starter") {
     const { thread } = request.forum;
+    const channelId = thread.isPost === false ? request.parentChannelId : thread.id;
 
     const body = yield* discordGet(
-      `/channels/${thread.id}/messages/${thread.starterId}`,
+      `/channels/${channelId}/messages/${thread.starterId}`,
       token,
       fetch
     );
@@ -75,7 +90,7 @@ export const sourcePage = Effect.fn("Discord.sourcePage")(function* (
 
     if (
       raw.id !== thread.starterId ||
-      raw.channel_id !== thread.id ||
+      raw.channel_id !== channelId ||
       thread.parentChannelId !== request.parentChannelId
     ) {
       return yield* Effect.fail(
@@ -87,8 +102,9 @@ export const sourcePage = Effect.fn("Discord.sourcePage")(function* (
 
     return {
       starter: {
-        ...toSourceMessage(raw, { ...request, channelId: thread.id }),
-        isPost: true,
+        ...toSourceMessage(raw, { ...request, channelId }),
+        threadId: thread.id,
+        isPost: thread.isPost !== false,
       },
     };
   }
@@ -136,6 +152,7 @@ export const sourcePage = Effect.fn("Discord.sourcePage")(function* (
   }
 
   const result: ThreadPage = {
+    isForum: type !== 0,
     scope,
     hasMore: page.has_more === true,
     threads: threads.map((thread) => ({
@@ -145,6 +162,7 @@ export const sourcePage = Effect.fn("Discord.sourcePage")(function* (
       starterId: thread.id,
       archived: thread.thread_metadata.archived,
       archiveTimestamp: thread.thread_metadata.archive_timestamp,
+      isPost: type !== 0,
     })),
   };
 

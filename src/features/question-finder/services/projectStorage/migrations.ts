@@ -50,6 +50,12 @@ export const projectMigrations = [
     archive_done INTEGER NOT NULL, before_timestamp TEXT, archive_floor TEXT NOT NULL,
     scan_upper TEXT NOT NULL
   );`,
+  `ALTER TABLE discord_threads ADD COLUMN collect_pending INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE discord_threads ADD COLUMN collected_generation INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE discord_threads ADD COLUMN last_selected INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE discord_threads ADD COLUMN is_post INTEGER NOT NULL DEFAULT 1;
+  INSERT OR IGNORE INTO fetch_progress (stream_id,parent_channel_id,completed_boundary,seeded)
+    SELECT id,parent_channel_id,'0',1 FROM discord_threads;`,
 ];
 
 export const migrateProjectStorage = (

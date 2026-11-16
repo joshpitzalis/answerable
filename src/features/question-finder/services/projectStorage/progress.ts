@@ -7,6 +7,7 @@ import type {
 } from "../../domain/harvest.values";
 import { readMessages } from "./content";
 import { readCycle } from "./cycle";
+import { discoveryComplete } from "./forumState";
 import { countPendingCandidates } from "./processing";
 import { readQuestions } from "./questions";
 
@@ -176,13 +177,16 @@ export const readSavedProject = (
   const cycle = readCycle(sql);
 
   const incomplete =
+    (cycle.active === 1 && ids.some(id => !discoveryComplete(sql,id,cycle.generation))) ||
     progress.length < ids.length ||
-    progress.some(
-      (row) =>
-        row.seeded === 0 ||
-        row.before_id !== null ||
-        (cycle.active === 1 && row.generation < cycle.generation)
-    );
+    progress
+      .filter((row) => row.stream_id === row.parent_channel_id)
+      .some(
+        (row) =>
+          row.seeded === 0 ||
+          row.before_id !== null ||
+          (cycle.active === 1 && row.generation < cycle.generation)
+      );
 
   const status = statusOf(
     state.activated_at,

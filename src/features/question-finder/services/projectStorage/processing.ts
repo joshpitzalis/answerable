@@ -3,6 +3,9 @@ import type { ProcessingCandidate } from "../../domain/harvest.values";
 import { messageFromRow } from "./content";
 import type { MessageRow } from "./content";
 import { saveQuestions } from "./questions";
+import { readThreadContext } from "./threadContext";
+
+export { invalidateProcessingContext } from "./processingContext";
 
 export const pendingCandidates = (
   sql: SqlStorage,
@@ -31,7 +34,8 @@ export const pendingCandidates = (
       message: messageFromRow(row),
       policyRevision: row.policy_revision,
       contextRevision: row.context_revision,
-      threadTitle: row.thread_title,
+      threadTitle: readThreadContext(sql, row.id)?.title ?? null,
+      ...readThreadContext(sql, row.id),
     }));
 
 export const countPendingCandidates = (
@@ -61,21 +65,6 @@ export const reprocessCandidates = (
     policyRevision,
     ...channelIds
   ).rowsWritten;
-
-export const invalidateProcessingContext = (
-  sql: SqlStorage,
-  messageId: string,
-  revision: string
-): boolean =>
-  sql
-    .exec(
-      `UPDATE processing SET context_revision=?, completed=0, failure=NULL
-    WHERE message_id=? AND context_revision != ? RETURNING message_id`,
-      revision,
-      messageId,
-      revision
-    )
-    .toArray().length > 0;
 
 export const completeProcessing = (
   storage: DurableObjectStorage,

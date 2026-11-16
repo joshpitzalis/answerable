@@ -1,5 +1,6 @@
 import type { Project } from "../../domain";
 import type { HarvestTurn } from "../../domain/harvest.values";
+import { discoveryComplete } from "./forumState";
 
 // oxlint-disable-next-line typescript/consistent-type-definitions -- SQLite rows require an implicit index signature.
 type CycleRow = {
@@ -40,7 +41,7 @@ export const claimAcquisition = (
         )
         .one();
 
-      if (progress.generation >= cycle.generation) {
+      if (progress.generation >= cycle.generation && discoveryComplete(storage.sql, channel.id, cycle.generation)) {
         continue;
       }
 

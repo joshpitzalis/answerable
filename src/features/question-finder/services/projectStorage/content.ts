@@ -124,15 +124,18 @@ export const ingestMessage = (
     page.observedAt,
     page.observedAt
   );
-  sql.exec(
-    `INSERT INTO processing (message_id, source_revision, policy_revision) VALUES (?, ?, ?)
+
+  if (message.channelId === message.parentChannelId || message.isPost) {
+    sql.exec(
+      `INSERT INTO processing (message_id, source_revision, policy_revision) VALUES (?, ?, ?)
     ON CONFLICT(message_id) DO UPDATE SET source_revision=excluded.source_revision,
     policy_revision=excluded.policy_revision, completed=0, failure=NULL
     WHERE source_revision != excluded.source_revision OR policy_revision != excluded.policy_revision`,
-    message.id,
-    revision,
-    page.policyRevision
-  );
+      message.id,
+      revision,
+      page.policyRevision
+    );
+  }
 
   if (changed) {
     sql.exec("DELETE FROM questions WHERE id = ?", message.id);

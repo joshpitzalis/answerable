@@ -7,22 +7,34 @@ export interface DiscordThread {
   readonly starterId: string;
   readonly archived: boolean;
   readonly archiveTimestamp: string;
+  readonly isPost?: boolean;
 }
 
 export interface ThreadPage {
   readonly threads: readonly DiscordThread[];
   readonly scope: "active" | "archive";
   readonly hasMore: boolean;
+  readonly isForum?: boolean;
 }
 
 export type ForumRequest =
+  | { readonly kind: "active" }
   | { readonly kind: "archive"; readonly before: string | null }
-  | { readonly kind: "starter"; readonly thread: DiscordThread };
+  | { readonly kind: "starter"; readonly thread: DiscordThread }
+  | {
+      readonly kind: "messages";
+      readonly thread: DiscordThread;
+      readonly before: string | null;
+    };
 
 export type SourcePage =
   | readonly SourceMessage[]
   | ThreadPage
-  | { readonly starter: SourceMessage };
+  | { readonly starter: SourceMessage }
+  | {
+      readonly thread: DiscordThread;
+      readonly messages: readonly SourceMessage[];
+    };
 
 const nanos = (value: string) => {
   const fraction = /\.(?<fraction>\d+)/u.exec(value)?.groups?.fraction ?? "";

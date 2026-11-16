@@ -74,7 +74,7 @@ export const harvestStoredProject = async (
           const candidates = yield* store.pending([channelId], 20);
           yield* Effect.forEach(
             candidates,
-            (candidate) => processCandidate(project, candidate, posts),
+            (candidate) => processCandidate(project, candidate, posts, mode),
             { concurrency: 4, discard: true }
           );
         })
