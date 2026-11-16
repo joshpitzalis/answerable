@@ -31,6 +31,7 @@ export interface ProcessingCandidate {
 }
 
 export interface FetchProgress {
+  readonly generation?: number;
   readonly streamId: string;
   readonly parentChannelId: string;
   readonly completedBoundary: string | null;
@@ -39,6 +40,11 @@ export interface FetchProgress {
   readonly seeded: boolean;
   readonly lastCompletedAt: number | null;
   readonly failure: string | null;
+}
+
+export interface HarvestTurn {
+  readonly generation: number;
+  readonly channelId: string;
 }
 
 export interface PageIngestion {

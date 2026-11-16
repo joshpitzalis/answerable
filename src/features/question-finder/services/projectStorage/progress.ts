@@ -5,7 +5,8 @@ import type {
   HarvestStatus,
   StoredQuestionsReply,
 } from "../../domain/harvest.values";
-import { pendingCandidates, readMessages } from "./content";
+import { readMessages } from "./content";
+import { readCycle } from "./cycle";
 import { readQuestions } from "./questions";
 
 // oxlint-disable-next-line typescript/consistent-type-definitions -- SQLite rows require an implicit index signature.
@@ -19,6 +20,7 @@ type StateRow = {
 
 // oxlint-disable-next-line typescript/consistent-type-definitions -- SQLite rows require an implicit index signature.
 type ProgressRow = {
+  generation: number;
   stream_id: string;
   parent_channel_id: string;
   completed_boundary: string | null;
@@ -35,6 +37,7 @@ export const readProgress = (sql: SqlStorage, id: string): FetchProgress => {
     .one();
 
   return {
+    generation: row.generation,
     streamId: row.stream_id,
     parentChannelId: row.parent_channel_id,
     completedBoundary: row.completed_boundary,
@@ -76,10 +79,6 @@ export const activateProject = (
       storage.sql.exec(
         "INSERT OR IGNORE INTO fetch_progress (stream_id, parent_channel_id) VALUES (?, ?)",
         channel.id,
-        channel.id
-      );
-      storage.sql.exec(
-        "UPDATE fetch_progress SET failure=NULL WHERE stream_id=?",
         channel.id
       );
     }
@@ -172,11 +171,26 @@ export const readSavedProject = (
       : [{ name: channel.name, reason: row.failure }];
   });
 
-  const pendingProcessing = pendingCandidates(sql, ids).length;
+  const pendingProcessing =
+    ids.length === 0
+      ? 0
+      : sql
+          .exec<{ count: number }>(
+            `SELECT COUNT(*) AS count FROM processing JOIN messages ON messages.id=message_id WHERE completed=0 AND deleted_at IS NULL AND parent_channel_id IN (${ids.map(() => "?").join(",")})`,
+            ...ids
+          )
+          .one().count;
+
+  const cycle = readCycle(sql);
 
   const incomplete =
     progress.length < ids.length ||
-    progress.some((row) => row.seeded === 0 || row.before_id !== null);
+    progress.some(
+      (row) =>
+        row.seeded === 0 ||
+        row.before_id !== null ||
+        (cycle.active === 1 && row.generation < cycle.generation)
+    );
 
   const status = statusOf(
     state.activated_at,
@@ -214,5 +228,6 @@ export const finishAttempt = (
 ): void => {
   if (readSavedProject(sql, project).harvest.status === "current") {
     sql.exec("UPDATE harvest_state SET last_complete_success=? WHERE id=1", at);
+    sql.exec("UPDATE harvest_cycle SET active=0 WHERE id=1");
   }
 };

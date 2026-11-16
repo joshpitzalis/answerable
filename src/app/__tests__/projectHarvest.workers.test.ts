@@ -102,7 +102,7 @@ describe("Project storage in the Workers runtime", () => {
         state.storage.sql
           .exec<{ version: number }>("SELECT version FROM schema_version")
           .one().version
-      ).toBe(2);
+      ).toBe(3);
       expect(
         state.storage.sql
           .exec("SELECT name FROM sqlite_master WHERE name = 'migration_probe'")
@@ -119,7 +119,7 @@ describe("Project storage in the Workers runtime", () => {
         state.storage.sql
           .exec<{ version: number }>("SELECT version FROM schema_version")
           .one().version
-      ).toBe(3);
+      ).toBe(4);
     });
     await expect(stub.readQuestions()).resolves.toStrictEqual([question]);
   });

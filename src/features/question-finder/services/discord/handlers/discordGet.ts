@@ -37,8 +37,9 @@ export const discordGet = Effect.fn("Discord.get")(function* (
   fetch: typeof globalThis.fetch
 ) {
   const response = yield* Effect.tryPromise({
-    try: () =>
+    try: (signal) =>
       fetch(`${API}${path}`, {
+        signal,
         headers: { Authorization: token },
       }),
     catch: (error) => new DiscordFailed({ reason: String(error) }),

@@ -3,6 +3,7 @@ import { Context, Effect, Layer, Schema } from "effect";
 import type { Project, QuestionsRow } from "../../domain";
 import type {
   FetchProgress,
+  HarvestTurn,
   IngestionCounts,
   PageIngestion,
   ProcessingCandidate,
@@ -15,6 +16,7 @@ import {
   pendingCandidates,
   readMessages,
 } from "./content";
+import { beginCycle, claimAcquisition, claimProcessing } from "./cycle";
 import {
   activateProject,
   finishAttempt,
@@ -40,6 +42,13 @@ const attempt = <A>(operation: string, body: () => A) =>
 export class ProjectStorage extends Context.Service<
   ProjectStorage,
   {
+    readonly beginCycle: Effect.Effect<void, ProjectStorageError>;
+    readonly claimAcquisition: (
+      project: Project
+    ) => Effect.Effect<HarvestTurn | null, ProjectStorageError>;
+    readonly claimProcessing: (
+      project: Project
+    ) => Effect.Effect<string | null, ProjectStorageError>;
     readonly saveQuestions: (
       rows: readonly QuestionsRow[]
     ) => Effect.Effect<void, ProjectStorageError>;
@@ -84,6 +93,11 @@ export class ProjectStorage extends Context.Service<
     Layer.succeed(
       ProjectStorage,
       ProjectStorage.of({
+        beginCycle: attempt("beginCycle", () => beginCycle(storage.sql)),
+        claimAcquisition: (project) =>
+          attempt("claimAcquisition", () => claimAcquisition(storage, project)),
+        claimProcessing: (project) =>
+          attempt("claimProcessing", () => claimProcessing(storage, project)),
         saveQuestions: (rows) =>
           attempt("saveQuestions", () =>
             storage.transactionSync(() => saveQuestions(storage.sql, rows))
@@ -128,7 +142,11 @@ export class ProjectStorage extends Context.Service<
         fail: (id, reason) =>
           attempt("fail", () => recordFailure(storage.sql, id, reason)),
         finish: (project, at) =>
-          attempt("finish", () => finishAttempt(storage.sql, project, at)),
+          attempt("finish", () =>
+            storage.transactionSync(() =>
+              finishAttempt(storage.sql, project, at)
+            )
+          ),
         read: (project) =>
           attempt("read", () => readSavedProject(storage.sql, project)),
       })

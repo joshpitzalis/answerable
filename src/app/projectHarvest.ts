@@ -9,6 +9,7 @@ import { migrateProjectStorage } from "../features/question-finder/services/proj
 import {
   harvestStoredProject,
   readStoredProject,
+  requestStoredHarvest,
 } from "../features/question-finder/workflows/harvestStoredProject";
 import type { StoredHarvestServices } from "../features/question-finder/workflows/harvestStoredProject";
 import {
@@ -50,6 +51,10 @@ export class ProjectHarvest extends DurableObject {
 
   harvest(project: Project) {
     return harvestStoredProject(this.#runtime, project, this.#mode);
+  }
+
+  requestHarvest(project: Project) {
+    return this.#runtime.runPromise(requestStoredHarvest(project));
   }
 
   read(project: Project) {

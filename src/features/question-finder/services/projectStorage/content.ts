@@ -168,10 +168,10 @@ export const ingestPage = (
 
     const { progress } = page;
     storage.sql.exec(
-      `INSERT INTO fetch_progress VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO fetch_progress (stream_id, parent_channel_id, completed_boundary, upper_boundary, before_id, seeded, last_completed_at, failure, generation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(stream_id) DO UPDATE SET completed_boundary=excluded.completed_boundary,
     upper_boundary=excluded.upper_boundary, before_id=excluded.before_id, seeded=excluded.seeded,
-    last_completed_at=excluded.last_completed_at, failure=excluded.failure`,
+    last_completed_at=excluded.last_completed_at, failure=excluded.failure, generation=excluded.generation`,
       progress.streamId,
       progress.parentChannelId,
       progress.completedBoundary,
@@ -179,7 +179,8 @@ export const ingestPage = (
       progress.before,
       Number(progress.seeded),
       progress.lastCompletedAt,
-      progress.failure
+      progress.failure,
+      progress.generation ?? 0
     );
 
     return counts;
