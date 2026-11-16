@@ -1,0 +1,248 @@
+import type { EmmettError } from '@event-driven-io/emmett';
+import {
+  assertFails,
+  assertFalse,
+  assertThrowsAsync,
+  assertTrue,
+  MessageProcessorType,
+} from '@event-driven-io/emmett';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  it,
+} from 'vitest';
+import { v4 as uuid } from 'uuid';
+import {
+  sharedPostgreSQLDatabase,
+  type PostgreSQLTestDatabase,
+} from '../../testing/postgreSQLTestDatabase';
+import {
+  getPostgreSQLEventStore,
+  type PostgresEventStore,
+} from '../postgreSQLEventStore';
+import {
+  postgreSQLEventStoreConsumer,
+  type PostgreSQLEventStoreConsumer,
+} from './postgreSQLEventStoreConsumer';
+import type { PostgreSQLProcessor } from './postgreSQLProcessor';
+import { pgEventStoreDriver } from '../../pg';
+
+const withDeadline = { timeout: 30000 };
+
+void describe('PostgreSQL event store consumer', () => {
+  let database: PostgreSQLTestDatabase;
+  let connectionString: string;
+  let eventStore: PostgresEventStore;
+  const dummyProcessor: PostgreSQLProcessor = {
+    type: MessageProcessorType.REACTOR,
+    id: uuid(),
+    instanceId: uuid(),
+    init: () => Promise.resolve(),
+    start: () => Promise.resolve('BEGINNING'),
+    close: () => Promise.resolve(),
+    handle: () => Promise.resolve(),
+    whenProcessed: () => Promise.resolve(),
+    isActive: false,
+  };
+
+  beforeAll(async () => {
+    database = await sharedPostgreSQLDatabase();
+    connectionString = database.connectionString;
+    eventStore = getPostgreSQLEventStore({
+      driver: pgEventStoreDriver,
+      connectionString: connectionString,
+    });
+    await eventStore.schema.migrate();
+  });
+
+  afterAll(async () => {
+    try {
+      await eventStore?.close();
+      await database?.close();
+    } catch (error) {
+      console.log(error);
+    }
+  });
+
+  void it(
+    'creates not-started consumer for the specified connection string',
+    withDeadline,
+    async () => {
+      const consumer = postgreSQLEventStoreConsumer({
+        connectionString,
+        processors: [dummyProcessor],
+      });
+
+      assertFalse(consumer.isRunning);
+
+      await consumer.close();
+    },
+  );
+
+  void it(
+    'creates not-started consumer if connection string targets not existing PostgreSQL database',
+    withDeadline,
+    async () => {
+      const connectionStringToNotExistingDB =
+        'postgresql://postgres:postgres@not-existing-database:5432/postgres';
+      const consumer = postgreSQLEventStoreConsumer({
+        connectionString: connectionStringToNotExistingDB,
+        processors: [dummyProcessor],
+      });
+
+      assertFalse(consumer.isRunning);
+
+      await consumer.close();
+    },
+  );
+
+  void describe('created consumer', withDeadline, () => {
+    let consumer: PostgreSQLEventStoreConsumer;
+
+    beforeEach(() => {
+      consumer = postgreSQLEventStoreConsumer({
+        connectionString,
+        processors: [dummyProcessor],
+      });
+    });
+    afterEach(() => consumer.close());
+
+    void it('subscribes to existing event store', () => {
+      consumer.start().catch(() => assertFails());
+
+      assertTrue(consumer.isRunning);
+    });
+
+    void it(
+      'fails to start if connection string targets not existing PostgreSQL database',
+      withDeadline,
+      async () => {
+        const connectionStringToNotExistingDB =
+          'postgresql://postgres:postgres@not-existing-database:5432/postgres';
+        const consumerToNotExistingServer = postgreSQLEventStoreConsumer({
+          connectionString: connectionStringToNotExistingDB,
+          processors: [dummyProcessor],
+        });
+        await assertThrowsAsync(
+          () => consumerToNotExistingServer.start(),
+          (error) => {
+            // TODO: Wrap it with Emmett error internally
+            return (
+              'code' in error &&
+              (error.code === 'EAI_AGAIN' || error.code === 'ENOTFOUND')
+            );
+          },
+        );
+      },
+    );
+
+    void it(
+      'fails to start if there are no processors',
+      withDeadline,
+      async () => {
+        const consumerToNotExistingServer = postgreSQLEventStoreConsumer({
+          connectionString,
+          processors: [],
+        });
+        await assertThrowsAsync<EmmettError>(
+          () => consumerToNotExistingServer.start(),
+          (error) => {
+            return (
+              error.message ===
+              'Cannot start consumer without at least a single processor'
+            );
+          },
+        );
+
+        await consumerToNotExistingServer.close();
+      },
+    );
+
+    void it(
+      'started resolves after successful start',
+      withDeadline,
+      async () => {
+        const startedConsumer = postgreSQLEventStoreConsumer({
+          connectionString,
+          processors: [dummyProcessor],
+        });
+        try {
+          void startedConsumer.start();
+          await startedConsumer.whenStarted();
+          assertTrue(startedConsumer.isRunning);
+        } finally {
+          await startedConsumer.close();
+        }
+      },
+    );
+
+    void it(
+      'started rejects if there are no processors',
+      withDeadline,
+      async () => {
+        const consumerWithoutProcessors = postgreSQLEventStoreConsumer({
+          connectionString,
+          processors: [],
+        });
+        try {
+          try {
+            consumerWithoutProcessors.start().catch(() => {});
+          } catch {
+            // start() may throw synchronously on validation failure
+          }
+          await assertThrowsAsync<EmmettError>(
+            () => consumerWithoutProcessors.whenStarted(),
+            (error) =>
+              error.message ===
+              'Cannot start consumer without at least a single processor',
+          );
+        } finally {
+          await consumerWithoutProcessors.close();
+        }
+      },
+    );
+
+    void it(
+      `stopping not started consumer doesn't fail`,
+      withDeadline,
+      async () => {
+        await consumer.stop();
+
+        assertFalse(consumer.isRunning);
+      },
+    );
+
+    void it(
+      `stopping not started consumer is idempotent`,
+      withDeadline,
+      async () => {
+        await consumer.stop();
+        await consumer.stop();
+
+        assertFalse(consumer.isRunning);
+      },
+    );
+  });
+
+  void describe('started consumer', () => {
+    let consumer: PostgreSQLEventStoreConsumer;
+
+    beforeEach(() => {
+      consumer = postgreSQLEventStoreConsumer({
+        connectionString,
+        processors: [dummyProcessor],
+      });
+      void consumer.start();
+    });
+    afterEach(() => consumer.close());
+
+    void it('stops started consumer', async () => {
+      await consumer.stop();
+
+      assertFalse(consumer.isRunning);
+    });
+  });
+});

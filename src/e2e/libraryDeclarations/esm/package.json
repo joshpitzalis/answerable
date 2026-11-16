@@ -1,0 +1,20 @@
+{
+  "private": true,
+  "name": "emmett-library-declarations-esm",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "tsc --skipLibCheck false"
+  },
+  "dependencies": {
+    "@event-driven-io/dumbo": "0.13.0-rc.2",
+    "@event-driven-io/emmett": "0.43.0-beta.54",
+    "@event-driven-io/emmett-postgresql": "0.43.0-beta.54"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/pg": "^8.23.1",
+    "@typescript/native": "npm:typescript@^7.0.2",
+    "typescript": "npm:@typescript/typescript6@^6.0.2"
+  }
+}

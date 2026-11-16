@@ -1,0 +1,335 @@
+import type { DurableObjectStorage } from '@cloudflare/workers-types';
+import {
+  JSONSerializer,
+  runSQLMigrations,
+  SQL,
+  sqlMigration,
+  type SQLExecutor,
+} from '@event-driven-io/dumbo';
+import {
+  cloudflareDurableObjectSQLiteConnection,
+  cloudflareDurableObjectSQLitePool,
+  tableExists,
+  type CloudflareDurableObjectSQLiteConnection,
+  type CloudflareDurableObjectSQLiteConnectionPool,
+} from '@event-driven-io/dumbo/cloudflare';
+import { sqliteTableName } from '@event-driven-io/dumbo/sqlite';
+import {
+  assertDeepEqual,
+  assertFalse,
+  assertThatArray,
+  assertTrue,
+  type Event,
+  type ReadEvent,
+} from '@event-driven-io/emmett';
+import { runInDurableObject } from 'cloudflare:test';
+import { env } from 'cloudflare:workers';
+import { aroundEach, describe, it } from 'vitest';
+import { durableObjectEventStoreDriver } from '../../../..';
+import {
+  getSQLiteEventStore,
+  type SQLiteEventStore,
+  type SQLiteReadEventMetadata,
+} from '../../../../../../eventStore/SQLiteEventStore';
+import { readProcessorCheckpoint } from '../../../../../../eventStore/schema/readProcessorCheckpoint';
+import { migrations_0_42_0 } from '../../../../../../eventStore/schema/migrations/0_42_0';
+import { migrations_0_43_0 } from '../../../../../../eventStore/schema/migrations/0_43_0';
+import {
+  schemaMigration,
+  migration_0_43_0_numericMessageSchemaVersionFor,
+  schemaMigrationFor,
+} from '../../../../../../eventStore/schema/migrations/index';
+
+export type ProductItemAdded = Event<
+  'ProductItemAdded',
+  {
+    shoppingCartId: string;
+    productItem: { productId: string; quantity: number };
+  }
+>;
+
+export type ShoppingCartConfirmed = Event<
+  'ShoppingCartConfirmed',
+  { shoppingCartId: string }
+>;
+
+export type ShoppingCartEvent = ProductItemAdded | ShoppingCartConfirmed;
+
+export type OrderInitiated = Event<
+  'OrderInitiated',
+  { shoppingCartId: string; orderId: string }
+>;
+
+void describe('Schema migrations tests', () => {
+  let storage: DurableObjectStorage;
+  let connection: CloudflareDurableObjectSQLiteConnection;
+  let pool: CloudflareDurableObjectSQLiteConnectionPool;
+  let eventStore: SQLiteEventStore;
+
+  aroundEach(async (runTest) => {
+    const stub = env.TEST_OBJECT.get(env.TEST_OBJECT.newUniqueId());
+
+    await runInDurableObject(stub, async (_instance, state) => {
+      storage = state.storage;
+      connection = cloudflareDurableObjectSQLiteConnection({
+        storage: state.storage,
+        serializer: JSONSerializer,
+      });
+
+      pool = cloudflareDurableObjectSQLitePool({ connection });
+
+      eventStore = getSQLiteEventStore({
+        driver: durableObjectEventStoreDriver,
+        storage,
+        pool,
+        schema: { autoMigration: 'None' },
+      });
+
+      try {
+        await runTest();
+      } finally {
+        await connection.close();
+      }
+    });
+  });
+
+  void it('migrates from fresh schema', async () => {
+    // Given
+
+    // When
+    const { applied, skipped } = await eventStore.schema.migrate();
+
+    // Then
+    assertDeepEqual(applied, [
+      ...migrations_0_42_0,
+      ...migrations_0_43_0,
+      schemaMigration,
+    ]);
+    assertThatArray(skipped).isEmpty();
+
+    assertTrue(await tableExists(connection.execute, 'dmb_migrations'));
+
+    const result = await assertCanAppendAndRead(eventStore);
+    await assertCanStoreAndReadCheckpoints(connection.execute, result);
+    await assertProjectionsTableExists(connection.execute);
+  });
+
+  void it('migrates fresh schema into the mixed database schemas configured by the user', async () => {
+    // Given
+    const schemaOptions = {
+      databaseSchemaName: 'events',
+      projectionsDatabaseSchemaName: 'read_models',
+      migrationTable: {
+        schemaName: 'infrastructure',
+        tableName: 'emmett_migrations',
+      },
+    };
+    eventStore = getSQLiteEventStore({
+      driver: durableObjectEventStoreDriver,
+      storage,
+      pool,
+      schema: {
+        autoMigration: 'None',
+        ...schemaOptions,
+      },
+    });
+
+    // When
+    const { applied, skipped } = await eventStore.schema.migrate();
+
+    // Then
+    assertDeepEqual(applied, [
+      migration_0_43_0_numericMessageSchemaVersionFor(schemaOptions),
+      schemaMigrationFor(schemaOptions),
+    ]);
+    assertThatArray(skipped).isEmpty();
+
+    assertTrue(await configuredTableExists('events', 'emt_streams'));
+    assertTrue(await configuredTableExists('events', 'emt_messages'));
+    assertTrue(await configuredTableExists('events', 'emt_processors'));
+    assertTrue(await configuredTableExists('events', 'emt_projections'));
+    assertTrue(
+      await configuredTableExists('infrastructure', 'emmett_migrations'),
+    );
+
+    assertFalse(await tableExists(connection.execute, 'emt_streams'));
+    assertFalse(await tableExists(connection.execute, 'emmett_migrations'));
+    assertFalse(await configuredTableExists('read_models', 'emt_streams'));
+    assertFalse(await configuredTableExists('events', 'emmett_migrations'));
+    assertFalse(
+      await configuredTableExists('infrastructure', 'dmb_migrations'),
+    );
+
+    await assertCanAppendAndRead(eventStore);
+  });
+
+  void it('migrates from latest schema', async () => {
+    // Given
+    await eventStore.schema.migrate();
+
+    // When
+    const { applied, skipped } = await eventStore.schema.migrate();
+
+    // Then
+    assertThatArray(applied).isEmpty();
+    assertDeepEqual(skipped, [
+      ...migrations_0_42_0,
+      ...migrations_0_43_0,
+      schemaMigration,
+    ]);
+  });
+
+  void it('skips the current schema migration when its SQL changed but the user already applied it', async () => {
+    await runSQLMigrations(pool, [schemaMigration]);
+    const sameMigrationChangedSQL = sqlMigration(
+      schemaMigration.name,
+      [SQL`SELECT 1`],
+      { ignoreHashMismatch: true },
+    );
+
+    const { applied, skipped } = await runSQLMigrations(pool, [
+      sameMigrationChangedSQL,
+    ]);
+
+    assertThatArray(applied).isEmpty();
+    assertDeepEqual(skipped, [sameMigrationChangedSQL]);
+  });
+
+  for (const dryRun of ['transactional', 'diff'] as const) {
+    void it(`applies the migration after the user dry-runs it first with ${dryRun} dry run`, async () => {
+      // Given
+      const dryRunResult = await eventStore.schema.migrate({ dryRun });
+
+      assertDeepEqual(dryRunResult.applied, [
+        ...migrations_0_42_0,
+        ...migrations_0_43_0,
+        schemaMigration,
+      ]);
+      assertFalse(await tableExists(connection.execute, 'dmb_migrations'));
+      assertFalse(await tableExists(connection.execute, 'emt_streams'));
+
+      // When
+      const { applied, skipped } = await eventStore.schema.migrate();
+
+      // Then
+      assertDeepEqual(applied, [
+        ...migrations_0_42_0,
+        ...migrations_0_43_0,
+        schemaMigration,
+      ]);
+      assertThatArray(skipped).isEmpty();
+
+      assertTrue(await tableExists(connection.execute, 'dmb_migrations'));
+
+      const result = await assertCanAppendAndRead(eventStore);
+      await assertCanStoreAndReadCheckpoints(connection.execute, result);
+      await assertProjectionsTableExists(connection.execute);
+    });
+  }
+
+  const assertCanAppendAndRead = async (eventStore: SQLiteEventStore) => {
+    const shoppingCartId = 'cart-123';
+    const itemAdded: ProductItemAdded = {
+      type: 'ProductItemAdded',
+      data: {
+        shoppingCartId,
+        productItem: { productId: 'product-456', quantity: 2 },
+      },
+    };
+    const shoppingCartConfirmed: ShoppingCartConfirmed = {
+      type: 'ShoppingCartConfirmed',
+      data: {
+        shoppingCartId,
+      },
+    };
+
+    await eventStore.appendToStream(shoppingCartId, [
+      itemAdded,
+      shoppingCartConfirmed,
+    ]);
+
+    const readShoppingCartResult =
+      await eventStore.readStream<ShoppingCartEvent>(shoppingCartId);
+
+    assertTrue(readShoppingCartResult.streamExists);
+    assertDeepEqual(readShoppingCartResult.currentStreamVersion, 2n);
+    assertDeepEqual(readShoppingCartResult.events.length, 2);
+
+    const orderId = `order-${shoppingCartId}`;
+
+    const orderInitiated: OrderInitiated = {
+      type: 'OrderInitiated',
+      data: {
+        shoppingCartId: 'cart-123',
+        orderId,
+      },
+    };
+    await eventStore.appendToStream(orderId, [orderInitiated]);
+
+    const readOrderResult =
+      await eventStore.readStream<OrderInitiated>(orderId);
+
+    assertTrue(readOrderResult.streamExists);
+    assertDeepEqual(readOrderResult.currentStreamVersion, 1n);
+    assertDeepEqual(readOrderResult.events.length, 1);
+
+    return {
+      shoppingCart: {
+        streamId: shoppingCartId,
+        lastEvent: readShoppingCartResult.events[1]!,
+      },
+      order: {
+        streamId: orderId,
+        lastEvent: readOrderResult.events[0]!,
+      },
+    };
+  };
+
+  const configuredTableExists = (
+    databaseSchemaName: string,
+    tableName: string,
+  ): Promise<boolean> =>
+    tableExists(
+      connection.execute,
+      sqliteTableName({ databaseSchemaName, tableName }),
+    );
+
+  const assertProjectionsTableExists = async (execute: SQLExecutor) => {
+    assertTrue(await tableExists(execute, 'emt_projections'));
+  };
+
+  const assertCanStoreAndReadCheckpoints = async (
+    execute: SQLExecutor,
+    {
+      shoppingCart,
+      order,
+    }: {
+      shoppingCart: {
+        streamId: string;
+        lastEvent: ReadEvent<ShoppingCartEvent, SQLiteReadEventMetadata>;
+      };
+      order: {
+        streamId: string;
+        lastEvent: ReadEvent<OrderInitiated, SQLiteReadEventMetadata>;
+      };
+    },
+  ) => {
+    const shoppingCartProcessorId = `processor-shopping-cart-${shoppingCart.streamId}`;
+
+    const shoppingCartCheckpoint = await readProcessorCheckpoint(execute, {
+      processorId: shoppingCartProcessorId,
+      partition: undefined,
+    });
+
+    assertDeepEqual(shoppingCartCheckpoint.lastProcessedCheckpoint, null);
+
+    const orderProcessorId = `processor-order-${order.streamId}`;
+
+    const orderCheckpoint = await readProcessorCheckpoint(execute, {
+      processorId: orderProcessorId,
+      partition: undefined,
+    });
+
+    assertDeepEqual(orderCheckpoint, { lastProcessedCheckpoint: null });
+  };
+});

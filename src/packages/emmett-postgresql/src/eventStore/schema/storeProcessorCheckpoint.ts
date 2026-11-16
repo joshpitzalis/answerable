@@ -1,0 +1,211 @@
+import { single, SQL, type SQLExecutor } from '@event-driven-io/dumbo';
+import { bigInt, type ProcessorCheckpoint } from '@event-driven-io/emmett';
+import { createFunctionIfDoesNotExistSQL } from './createFunctionIfDoesNotExist';
+import { postgreSQLFunctionName } from './postgreSQLFunctionName';
+import {
+  defaultTag,
+  processorsTable,
+  tableReference,
+  unknownTag,
+} from './typing';
+
+export const storeSubscriptionCheckpointSQLFor = (
+  databaseSchemaName?: string,
+) =>
+  createFunctionIfDoesNotExistSQL(
+    'store_processor_checkpoint',
+    SQL`
+CREATE OR REPLACE FUNCTION ${postgreSQLFunctionName(databaseSchemaName, 'store_processor_checkpoint')}(
+  p_processor_id           TEXT,
+  p_version                BIGINT,
+  p_position               TEXT,
+  p_check_position         TEXT,
+  p_transaction_id         xid8,
+  p_partition              TEXT DEFAULT '${SQL.plain(defaultTag)}',
+  p_processor_instance_id  TEXT DEFAULT '${SQL.plain(unknownTag)}'
+) RETURNS INT AS $spc$
+DECLARE
+  current_position TEXT;
+BEGIN
+  -- Handle the case when p_check_position is provided
+  IF p_check_position IS NOT NULL THEN
+      -- Try to update if the position matches p_check_position (new format)
+      UPDATE ${tableReference(databaseSchemaName, processorsTable.name)}
+      SET
+        "last_processed_checkpoint" = p_position,
+        "last_processed_transaction_id" = p_transaction_id,
+        "last_updated" = now()
+      WHERE "processor_id" = p_processor_id
+        AND "last_processed_checkpoint" = p_check_position
+        AND "partition" = p_partition
+        AND "version" = p_version;
+
+      IF FOUND THEN
+          RETURN 1;  -- Successfully updated
+      END IF;
+
+      -- TODO: Remove once all deployments have run the 0.43.0 migration.
+      -- Handles mixed-format scenarios during blue-green deployment.
+      IF p_check_position LIKE '%:%' THEN
+          -- new code, stored value still in old format (plain globalpos)
+          UPDATE ${tableReference(databaseSchemaName, processorsTable.name)}
+          SET
+            "last_processed_checkpoint" = p_position,
+            "last_processed_transaction_id" = p_transaction_id,
+            "last_updated" = now()
+          WHERE "processor_id" = p_processor_id
+            AND "last_processed_checkpoint" = split_part(p_check_position, ':', 2)
+            AND "last_processed_checkpoint" NOT LIKE '%:%'
+            AND "partition" = p_partition
+            AND "version" = p_version;
+      ELSE
+          -- old code, stored value already migrated to new format (txid:globalpos)
+          UPDATE ${tableReference(databaseSchemaName, processorsTable.name)}
+          SET
+            "last_processed_checkpoint" = p_position,
+            "last_processed_transaction_id" = p_transaction_id,
+            "last_updated" = now()
+          WHERE "processor_id" = p_processor_id
+            AND split_part("last_processed_checkpoint", ':', 2) = p_check_position
+            AND "last_processed_checkpoint" LIKE '%:%'
+            AND "partition" = p_partition
+            AND "version" = p_version;
+      END IF;
+
+      IF FOUND THEN
+          RETURN 1;  -- Successfully updated (mixed-format fallback)
+      END IF;
+
+      -- Retrieve the current position
+      SELECT "last_processed_checkpoint" INTO current_position
+      FROM ${tableReference(databaseSchemaName, processorsTable.name)}
+      WHERE "processor_id" = p_processor_id 
+        AND "partition" = p_partition 
+        AND "version" = p_version;
+
+      -- Return appropriate codes based on current position
+      IF current_position = p_position THEN
+          RETURN 0;  -- Idempotent check: position already set
+      ELSIF current_position > p_position THEN
+          RETURN 3;  -- Current ahead: another process has progressed further
+      ELSE
+          RETURN 2;  -- Mismatch: check position doesn't match current
+      END IF;
+  END IF;
+
+  -- Handle the case when p_check_position is NULL: Insert if not exists
+  BEGIN
+      INSERT INTO ${tableReference(databaseSchemaName, processorsTable.name)}("processor_id", "version", "last_processed_checkpoint", "partition", "last_processed_transaction_id", "created_at", "last_updated")
+      VALUES (p_processor_id, p_version, p_position, p_partition, p_transaction_id, now(), now());
+      RETURN 1;  -- Successfully inserted
+  EXCEPTION WHEN unique_violation THEN
+      -- If insertion failed, it means the row already exists
+      UPDATE ${tableReference(databaseSchemaName, processorsTable.name)}
+      SET
+        "last_processed_checkpoint" = p_position,
+        "last_processed_transaction_id" = p_transaction_id,
+        "last_updated" = now()
+      WHERE "processor_id" = p_processor_id
+        AND "last_processed_checkpoint" = '${SQL.plain(bigInt.toNormalizedString(0n))}'
+        AND "partition" = p_partition
+        AND "version" = p_version;
+
+      IF FOUND THEN
+          RETURN 1;  -- Replaced the placeholder row created by the processor lock
+      END IF;
+
+      SELECT "last_processed_checkpoint" INTO current_position
+      FROM ${tableReference(databaseSchemaName, processorsTable.name)}
+      WHERE "processor_id" = p_processor_id 
+        AND "partition" = p_partition 
+        AND "version" = p_version;
+
+      IF current_position = p_position THEN
+          RETURN 0;  -- Idempotent check: position already set
+      ELSIF current_position > p_position THEN
+          RETURN 3;  -- Current ahead: another process has progressed further
+      ELSE
+          RETURN 2;  -- Insertion failed, row already exists with different position
+      END IF;
+  END;
+END;
+$spc$ LANGUAGE plpgsql;
+`,
+    databaseSchemaName,
+  );
+
+export const storeSubscriptionCheckpointSQL =
+  storeSubscriptionCheckpointSQLFor();
+
+type CallStoreProcessorCheckpointParams = {
+  databaseSchemaName?: string;
+  processorId: string;
+  version: number;
+  position: string | null;
+  checkPosition: string | null;
+  partition: string;
+  processorInstanceId: string;
+};
+
+export const callStoreProcessorCheckpoint = (
+  params: CallStoreProcessorCheckpointParams,
+) =>
+  SQL`
+    SELECT ${postgreSQLFunctionName(params.databaseSchemaName, 'store_processor_checkpoint')}(
+      ${params.processorId}, 
+      ${params.version}, 
+      ${params.position}, 
+      ${params.checkPosition}, 
+      pg_current_xact_id(), 
+      ${params.partition}, 
+      ${params.processorInstanceId}
+    ) as result;`;
+
+export type StoreProcessorCheckpointResult =
+  | {
+      success: true;
+      newCheckpoint: ProcessorCheckpoint | null;
+    }
+  | { success: false; reason: 'IGNORED' | 'MISMATCH' | 'CURRENT_AHEAD' };
+
+export const storeProcessorCheckpoint = async (
+  execute: SQLExecutor,
+  options: {
+    processorId: string;
+    version: number | undefined;
+    newCheckpoint: ProcessorCheckpoint | null;
+    lastProcessedCheckpoint: ProcessorCheckpoint | null;
+    partition?: string;
+    processorInstanceId?: string;
+    databaseSchemaName?: string;
+  },
+): Promise<StoreProcessorCheckpointResult> => {
+  const { result } = await single(
+    execute.command<{ result: 0 | 1 | 2 | 3 }>(
+      callStoreProcessorCheckpoint({
+        databaseSchemaName: options.databaseSchemaName,
+        processorId: options.processorId,
+        version: options.version ?? 1,
+        position: options.newCheckpoint !== null ? options.newCheckpoint : null,
+        checkPosition:
+          options.lastProcessedCheckpoint !== null
+            ? options.lastProcessedCheckpoint
+            : null,
+        partition: options.partition ?? defaultTag,
+        processorInstanceId: options.processorInstanceId ?? unknownTag,
+      }),
+    ),
+  );
+
+  return result === 1
+    ? { success: true, newCheckpoint: options.newCheckpoint }
+    : {
+        success: false,
+        reason:
+          result === 0
+            ? 'IGNORED'
+            : result === 3
+              ? 'CURRENT_AHEAD'
+              : 'MISMATCH',
+      };
+};

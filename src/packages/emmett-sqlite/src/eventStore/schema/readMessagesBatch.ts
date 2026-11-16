@@ -1,0 +1,149 @@
+import { mapRows, SQL, type SQLExecutor } from '@event-driven-io/dumbo';
+import type { JSONSerializer } from '@event-driven-io/emmett';
+import {
+  bigIntProcessorCheckpoint,
+  resolveSchemaVersion,
+  withoutSchemaVersion,
+  type CombinedMessageMetadata,
+  type Message,
+  type RecordedMessage,
+  type RecordedMessageMetadata,
+  type RecordedMessageMetadataWithGlobalPosition,
+} from '@event-driven-io/emmett';
+import { defaultTag, messagesTable, tableReference } from './typing';
+
+type ReadMessagesBatchSqlResult = {
+  stream_position: string;
+  stream_id: string;
+  message_data: string;
+  message_metadata: string;
+  message_schema_version: number;
+  message_kind: string;
+  message_type: string;
+  message_id: string;
+  global_position: string;
+  transaction_id: string;
+  created: string;
+};
+
+export type ReadMessagesBatchOptions = (
+  | {
+      after: bigint;
+      batchSize: number;
+    }
+  | {
+      from: bigint;
+      batchSize: number;
+    }
+  | { to: bigint; batchSize: number }
+  | { from: bigint; to: bigint }
+) & {
+  partition?: string;
+  databaseSchemaName?: string;
+  serializer: JSONSerializer;
+};
+
+export type ReadMessagesBatchResult<
+  MessageType extends Message,
+  MessageMetadataType extends RecordedMessageMetadata = RecordedMessageMetadata,
+> = {
+  currentGlobalPosition: bigint;
+  messages: RecordedMessage<MessageType, MessageMetadataType>[];
+  areMessagesLeft: boolean;
+};
+
+export const readMessagesBatch = async <
+  MessageType extends Message,
+  RecordedMessageMetadataType extends
+    RecordedMessageMetadataWithGlobalPosition =
+    RecordedMessageMetadataWithGlobalPosition,
+>(
+  execute: SQLExecutor,
+  options: ReadMessagesBatchOptions,
+): Promise<
+  ReadMessagesBatchResult<MessageType, RecordedMessageMetadataType>
+> => {
+  const { serializer } = options;
+  const from = 'from' in options ? options.from : undefined;
+  const after = 'after' in options ? options.after : undefined;
+  const batchSize =
+    'batchSize' in options ? options.batchSize : options.to - options.from;
+
+  const fromCondition: SQL =
+    from !== undefined
+      ? SQL`AND global_position >= ${from}`
+      : after !== undefined
+        ? SQL`AND global_position > ${after}`
+        : SQL.EMPTY;
+
+  const toCondition: SQL =
+    'to' in options ? SQL`AND global_position <= ${options.to}` : SQL.EMPTY;
+
+  const limitCondition: SQL =
+    'batchSize' in options ? SQL`LIMIT ${options.batchSize}` : SQL.EMPTY;
+
+  const messages: RecordedMessage<MessageType, RecordedMessageMetadataType>[] =
+    await mapRows(
+      execute.query<ReadMessagesBatchSqlResult>(
+        SQL`SELECT stream_id, stream_position, global_position, message_data, message_metadata, message_schema_version, message_kind, message_type, message_id
+           FROM ${tableReference(options?.databaseSchemaName, messagesTable.name)}
+           WHERE partition = ${options?.partition ?? defaultTag} AND is_archived = FALSE ${fromCondition} ${toCondition}
+           ORDER BY global_position
+           ${limitCondition}`,
+      ),
+      (row) => {
+        const rawEvent = {
+          type: row.message_type,
+          data: serializer.deserialize(row.message_data),
+          metadata: serializer.deserialize(row.message_metadata),
+        } as unknown as MessageType;
+
+        const globalPosition = bigIntProcessorCheckpoint(
+          BigInt(row.global_position),
+        );
+
+        const metadata: RecordedMessageMetadataWithGlobalPosition = {
+          ...withoutSchemaVersion(
+            'metadata' in rawEvent ? (rawEvent.metadata ?? {}) : {},
+          ),
+          messageId: row.message_id,
+          streamName: row.stream_id,
+          streamPosition: BigInt(row.stream_position),
+          globalPosition,
+          checkpoint: globalPosition,
+        };
+
+        return {
+          ...rawEvent,
+          kind: row.message_kind === 'C' ? 'Command' : 'Event',
+          schemaVersion: resolveSchemaVersion(row.message_schema_version),
+          metadata: metadata as CombinedMessageMetadata<
+            MessageType,
+            RecordedMessageMetadataType
+          >,
+        };
+      },
+    );
+
+  return messages.length > 0
+    ? {
+        // TODO: Fix this back and forth parsing
+        currentGlobalPosition: BigInt(
+          messages[messages.length - 1]!.metadata.globalPosition,
+        ),
+        messages: messages,
+        areMessagesLeft: messages.length === batchSize,
+      }
+    : {
+        // TODO: Fix this back and forth parsing
+        currentGlobalPosition: BigInt(
+          'from' in options
+            ? options.from
+            : 'after' in options
+              ? options.after
+              : 0n,
+        ),
+        messages: [],
+        areMessagesLeft: false,
+      };
+};

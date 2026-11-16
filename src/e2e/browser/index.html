@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Browser Compatibility Test</title>
+    <!-- Import map to remap "uuid" to a CDN URL -->
+    <script type="importmap">
+      {
+        "imports": {
+          "uuid": "https://cdn.jsdelivr.net/npm/uuid@14.0.3/+esm",
+          "async-retry": "https://esm.sh/async-retry@1.3.3",
+          "@event-driven-io/almanac": "./node_modules/@event-driven-io/almanac/dist/index.js",
+          "@event-driven-io/emmett": "./node_modules/@event-driven-io/emmett/dist/index.js"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <script type="module">
+      import { getInMemoryEventStore } from '@event-driven-io/emmett';
+
+      const eventStore = getInMemoryEventStore();
+      await eventStore.appendToStream('counter-1', [
+        { type: 'Counted', data: { by: 2 } },
+      ]);
+      const { events } = await eventStore.readStream('counter-1');
+
+      window.eventStore = eventStore;
+      window.events = events.map(({ type, data }) => ({ type, data }));
+    </script>
+  </body>
+</html>

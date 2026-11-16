@@ -1,0 +1,156 @@
+import { context, trace } from '@opentelemetry/api';
+import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks';
+import {
+  TracerProvider,
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+} from '@opentelemetry/sdk-trace';
+import { otelAssertions, otelTracer } from '@event-driven-io/almanac/otel';
+import { MessagingAttributes } from '@event-driven-io/almanac';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { getInMemoryEventStore } from '../../eventStore';
+import {
+  EmmettAttributes,
+  EmmettMetrics,
+  MessagingSystemName,
+} from '../../observability';
+import type { Event } from '../../typing';
+import { workflowCollector, workflowObservability } from './workflowCollector';
+
+describe('workflowCollector with OTel', () => {
+  const M = MessagingAttributes;
+  const exporter = new InMemorySpanExporter();
+  const provider = new TracerProvider({
+    spanProcessors: [new SimpleSpanProcessor({ exporter: exporter })],
+  });
+
+  beforeAll(() => {
+    const contextManager = new AsyncLocalStorageContextManager();
+    contextManager.enable();
+    context.setGlobalContextManager(contextManager);
+    trace.setGlobalTracerProvider(provider);
+  });
+
+  beforeEach(() => exporter.reset());
+
+  it('exports workflow.handle span through the OTel provider', async () => {
+    const collector = workflowCollector(
+      workflowObservability({
+        observability: { tracer: otelTracer('emmett-workflow-test') },
+      }),
+    );
+
+    await collector.startScope(
+      {
+        workflowId: 'checkout-1',
+        workflowType: 'GroupCheckoutWorkflow',
+        inputType: 'GuestCheckedOut',
+      },
+      (scope) => {
+        collector.recordStateRebuild(scope, 2);
+        collector.recordOutputs(scope, [{ type: 'GroupCheckoutCompleted' }]);
+        return Promise.resolve();
+      },
+    );
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+
+    otelAssertions
+      .spans(spans)
+      .hasSingleSpanNamed('workflow.handle')
+      .isMainScope('emmett')
+      .hasAttributes({
+        [EmmettAttributes.scope.type]: 'workflow',
+        [EmmettAttributes.workflow.id]: 'checkout-1',
+        [EmmettAttributes.workflow.type]: 'GroupCheckoutWorkflow',
+        [EmmettAttributes.workflow.inputType]: 'GuestCheckedOut',
+        [EmmettAttributes.workflow.stateRebuildEventCount]: 2,
+        [EmmettAttributes.workflow.outputsCount]: 1,
+        [M.system]: MessagingSystemName,
+      });
+    expect(
+      spans[0]!.attributes[EmmettAttributes.workflow.outputs],
+    ).toStrictEqual(['GroupCheckoutCompleted']);
+  });
+
+  it('records workflow duration metric name in the resolved collector contract', () => {
+    expect(EmmettMetrics.workflow.processingDuration).toBe(
+      'emmett.workflow.processing.duration',
+    );
+  });
+
+  it('exports event store append/read spans from a plugged in-memory event store', async () => {
+    const store = getInMemoryEventStore({
+      observability: { tracer: otelTracer('emmett-event-store-test') },
+    });
+
+    await store.appendToStream('orders-1', [
+      { type: 'OrderPlaced', data: { orderId: 'orders-1' } },
+    ]);
+    await store.readStream('orders-1');
+    await store.aggregateStream<{ orders: number }, Event>('orders-1', {
+      initialState: () => ({ orders: 0 }),
+      evolve: (state: { orders: number }) => ({ orders: state.orders + 1 }),
+    });
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(4);
+
+    otelAssertions
+      .spans(spans)
+      .hasSingleSpanNamed('eventStore.appendToStream', { noParent: true })
+      .hasAttributes({
+        [EmmettAttributes.scope.main]: true,
+        [EmmettAttributes.eventStore.operation]: 'appendToStream',
+        [EmmettAttributes.stream.name]: 'orders-1',
+        [EmmettAttributes.eventStore.append.batchSize]: 1,
+        [EmmettAttributes.eventStore.append.status]: 'success',
+        [EmmettAttributes.stream.versionAfter]: 1,
+        [M.operation.type]: 'send',
+        [M.batch.messageCount]: 1,
+        [M.destination.name]: 'orders-1',
+        [M.system]: MessagingSystemName,
+      });
+
+    otelAssertions
+      .spans(spans)
+      .haveSpansNamed('eventStore.readStream')
+      .hasCount(2)
+      .haveAttributes({
+        [EmmettAttributes.eventStore.operation]: 'readStream',
+        [EmmettAttributes.stream.name]: 'orders-1',
+        [EmmettAttributes.eventStore.read.status]: 'success',
+        [EmmettAttributes.eventStore.read.eventCount]: 1,
+        [EmmettAttributes.eventStore.read.eventTypes]: ['OrderPlaced'],
+        [M.operation.type]: 'receive',
+        [M.destination.name]: 'orders-1',
+        [M.system]: MessagingSystemName,
+      });
+
+    otelAssertions
+      .spans(spans)
+      .hasSingleSpanNamed('eventStore.readStream', { noParent: true })
+      .hasAttributes({
+        [EmmettAttributes.scope.main]: true,
+      });
+
+    const aggregateSpan = otelAssertions
+      .spans(spans)
+      .hasSingleSpanNamed('eventStore.aggregateStream', { noParent: true })
+      .hasAttributes({
+        [EmmettAttributes.scope.main]: true,
+        [EmmettAttributes.eventStore.operation]: 'aggregateStream',
+        [EmmettAttributes.stream.name]: 'orders-1',
+        [EmmettAttributes.eventStore.aggregate.status]: 'success',
+        [EmmettAttributes.stream.versionAfter]: 1,
+        [M.operation.type]: 'process',
+        [M.destination.name]: 'orders-1',
+        [M.system]: MessagingSystemName,
+      });
+
+    aggregateSpan.hasChildNamed('eventStore.readStream').hasAttributes({
+      [EmmettAttributes.scope.main]: undefined,
+    });
+  });
+});

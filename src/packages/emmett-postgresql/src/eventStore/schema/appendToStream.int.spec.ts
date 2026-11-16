@@ -1,0 +1,669 @@
+import { dumbo, SQL } from '@event-driven-io/dumbo';
+import { pgDumboDriver, type PgPool } from '@event-driven-io/dumbo/pg';
+import {
+  assertDeepEqual,
+  assertEqual,
+  assertFalse,
+  assertIsNotNull,
+  assertOk,
+  assertThatArray,
+  assertTrue,
+  STREAM_DOES_NOT_EXIST,
+  STREAM_EXISTS,
+  type Event,
+  type RecordedMessage,
+} from '@event-driven-io/emmett';
+import { v4 as uuid } from 'uuid';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createEventStoreSchema } from '.';
+import {
+  sharedPostgreSQLDatabase,
+  type PostgreSQLTestDatabase,
+} from '../../testing/postgreSQLTestDatabase';
+import type { PostgresReadEventMetadata } from '../postgreSQLEventStore';
+import {
+  appendToStream,
+  type AppendToStreamBeforeCommitHook,
+} from './appendToStream';
+import { PostgreSQLEventStoreCheckpoint } from './readMessagesBatch';
+import { readStream } from './readStream';
+
+export type PricedProductItem = {
+  productId: string;
+  quantity: number;
+  price: number;
+};
+
+export type ShoppingCart = {
+  productItems: PricedProductItem[];
+  totalAmount: number;
+};
+
+export type ProductItemAdded = Event<
+  'ProductItemAdded',
+  { productItem: PricedProductItem },
+  { meta: string }
+>;
+export type DiscountApplied = Event<
+  'DiscountApplied',
+  { percent: number },
+  { meta: string }
+>;
+
+export type ShoppingCartEvent = ProductItemAdded | DiscountApplied;
+
+void describe('appendEvent', () => {
+  let database: PostgreSQLTestDatabase;
+  let pool: PgPool;
+
+  beforeAll(async () => {
+    database = await sharedPostgreSQLDatabase();
+    const connectionString = database.connectionString;
+    pool = dumbo({
+      driver: pgDumboDriver,
+      connectionString,
+      transactionOptions: {
+        allowNestedTransactions: true,
+      },
+    });
+
+    await createEventStoreSchema({ pool });
+  });
+
+  afterAll(async () => {
+    try {
+      await pool?.close();
+      await database?.close();
+    } catch (error) {
+      console.log(error);
+    }
+  });
+
+  const events: ShoppingCartEvent[] = [
+    {
+      type: 'ProductItemAdded',
+      data: { productItem: { productId: '1', quantity: 2, price: 30 } },
+      metadata: { meta: 'data1' },
+    },
+    {
+      type: 'DiscountApplied',
+      data: { percent: 10 },
+      metadata: { meta: 'data2' },
+    },
+  ];
+
+  for (const { criterion, exists, expectedStreamVersion } of [
+    {
+      criterion:
+        'rejects creating a stream when an existing stream is required',
+      exists: false,
+      expectedStreamVersion: STREAM_EXISTS,
+    },
+    {
+      criterion:
+        'rejects appending to an existing stream when a new stream is required',
+      exists: true,
+      expectedStreamVersion: STREAM_DOES_NOT_EXIST,
+    },
+  ]) {
+    void it(criterion, async () => {
+      const streamId = uuid();
+      if (exists) {
+        await pool.withConnection((connection) =>
+          appendToStream(connection, streamId, 'shopping_cart', events),
+        );
+      }
+      const before = await pool.execute.query(
+        SQL`SELECT last_value, is_called FROM emt_global_message_position`,
+      );
+      let hookCalled = false;
+
+      const result = await pool.withConnection((connection) =>
+        appendToStream(connection, streamId, 'shopping_cart', events, {
+          expectedStreamVersion,
+          beforeCommitHook: () => {
+            hookCalled = true;
+            return Promise.resolve();
+          },
+        }),
+      );
+
+      assertFalse(result.success);
+      assertFalse(hookCalled);
+      const after = await pool.execute.query(
+        SQL`SELECT last_value, is_called FROM emt_global_message_position`,
+      );
+      assertDeepEqual(after.rows, before.rows);
+    });
+  }
+
+  void it('allows concurrent appends when only stream existence is required', async () => {
+    const streamId = uuid();
+    await pool.withConnection((connection) =>
+      appendToStream(connection, streamId, 'shopping_cart', events),
+    );
+
+    const results = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        pool.withConnection((connection) =>
+          appendToStream(connection, streamId, 'shopping_cart', events, {
+            expectedStreamVersion: STREAM_EXISTS,
+          }),
+        ),
+      ),
+    );
+
+    results.forEach((result) => assertTrue(result.success));
+    const stored = await pool.execute.query<{ stream_position: string }>(
+      SQL`SELECT stream_position FROM emt_messages WHERE stream_id = ${streamId} ORDER BY stream_position`,
+    );
+    assertDeepEqual(
+      stored.rows.map((row) => BigInt(row.stream_position)),
+      Array.from({ length: 18 }, (_, index) => BigInt(index + 1)),
+    );
+  });
+
+  void it('keeps the stream unchanged when a before-commit hook fails', async () => {
+    const streamId = uuid();
+    await pool.withConnection((connection) =>
+      appendToStream(connection, streamId, 'shopping_cart', events),
+    );
+    const failure = new Error('Projection failed');
+
+    await expect(
+      pool.withConnection((connection) =>
+        appendToStream(connection, streamId, 'shopping_cart', events, {
+          expectedStreamVersion: STREAM_EXISTS,
+          beforeCommitHook: () => Promise.reject(failure),
+        }),
+      ),
+    ).rejects.toBe(failure);
+
+    const stream = await pool.execute.query<{ stream_position: string }>(
+      SQL`SELECT stream_position FROM emt_streams WHERE stream_id = ${streamId}`,
+    );
+    const stored = await pool.execute.query(
+      SQL`SELECT * FROM emt_messages WHERE stream_id = ${streamId}`,
+    );
+    assertEqual(2n, BigInt(stream.rows[0]!.stream_position));
+    assertEqual(2, stored.rows.length);
+  });
+
+  void it('should append events correctly using appendEvent function', async () => {
+    const result = await pool.withConnection(async (connection) =>
+      appendToStream(connection, uuid(), 'shopping_cart', events, {
+        expectedStreamVersion: 0n,
+      }),
+    );
+
+    assertTrue(result.success);
+    assertEqual(result.nextStreamPosition, 2n);
+    assertIsNotNull(result.checkpoints);
+    assertThatArray(result.checkpoints).isNotEmpty();
+    assertThatArray(result.checkpoints).hasSize(events.length);
+    assertTrue(
+      result.checkpoints[result.checkpoints.length - 1]!.globalPosition > 0n,
+    );
+    assertOk(result.checkpoints[result.checkpoints.length - 1]!.transactionId);
+  });
+
+  void it('should append events correctly without expected stream position', async () => {
+    const result = await pool.withConnection(async (connection) =>
+      appendToStream(connection, uuid(), 'shopping_cart', events, {}),
+    );
+
+    assertTrue(result.success);
+    assertEqual(result.nextStreamPosition, 2n);
+    assertIsNotNull(result.checkpoints);
+    assertThatArray(result.checkpoints).isNotEmpty();
+    assertThatArray(result.checkpoints).hasSize(events.length);
+    assertTrue(
+      result.checkpoints[result.checkpoints.length - 1]!.globalPosition > 0n,
+    );
+    assertOk(result.checkpoints[result.checkpoints.length - 1]!.transactionId);
+  });
+
+  void it('should increment stream position in events correctly without expected stream position', async () => {
+    const streamId = uuid();
+
+    let result = await pool.withConnection(async (connection) =>
+      appendToStream(connection, streamId, 'shopping_cart', events, {}),
+    );
+
+    assertTrue(result.success);
+    assertEqual(result.nextStreamPosition, 2n);
+
+    result = await pool.withConnection(async (connection) =>
+      appendToStream(connection, streamId, 'shopping_cart', events, {}),
+    );
+
+    assertTrue(result.success);
+    assertEqual(4n, result.nextStreamPosition);
+    assertIsNotNull(result.checkpoints);
+    assertThatArray(result.checkpoints).isNotEmpty();
+    assertThatArray(result.checkpoints).hasSize(events.length);
+    assertTrue(
+      result.checkpoints[result.checkpoints.length - 1]!.globalPosition > 0n,
+    );
+    assertOk(result.checkpoints[result.checkpoints.length - 1]!.transactionId);
+  });
+
+  void it('should increment stream position in events correctly with expected stream position', async () => {
+    const streamId = uuid();
+
+    let result = await pool.withConnection(async (connection) =>
+      appendToStream(connection, streamId, 'shopping_cart', events, {}),
+    );
+
+    assertTrue(result.success);
+    assertEqual(result.nextStreamPosition, 2n);
+
+    const nextExpectedStreamVersion = result.nextStreamPosition;
+
+    result = await pool.withConnection(async (connection) =>
+      appendToStream(connection, streamId, 'shopping_cart', events, {
+        expectedStreamVersion: nextExpectedStreamVersion,
+      }),
+    );
+
+    assertTrue(result.success);
+    assertEqual(4n, result.nextStreamPosition);
+    assertIsNotNull(result.checkpoints);
+    assertThatArray(result.checkpoints).isNotEmpty();
+    assertThatArray(result.checkpoints).hasSize(events.length);
+    assertTrue(
+      result.checkpoints[result.checkpoints.length - 1]!.globalPosition > 0n,
+    );
+    assertOk(result.checkpoints[result.checkpoints.length - 1]!.transactionId);
+  });
+
+  void it('should increment stream position in events from beforeCommitHook correctly without expected stream position', async () => {
+    let messagesFromHook: RecordedMessage<
+      ShoppingCartEvent,
+      PostgresReadEventMetadata
+    >[] = [];
+
+    const beforeCommitHook: AppendToStreamBeforeCommitHook = (messages) => {
+      messagesFromHook = [
+        ...messagesFromHook,
+        ...(messages as RecordedMessage<
+          ShoppingCartEvent,
+          PostgresReadEventMetadata
+        >[]),
+      ];
+      return Promise.resolve();
+    };
+
+    const streamId = uuid();
+
+    let result = await pool.withConnection(async (connection) =>
+      appendToStream(connection, streamId, 'shopping_cart', events, {
+        beforeCommitHook,
+      }),
+    );
+
+    assertTrue(result.success);
+    assertEqual(result.nextStreamPosition, 2n);
+
+    result = await pool.withConnection(async (connection) =>
+      appendToStream(connection, streamId, 'shopping_cart', events, {
+        beforeCommitHook,
+      }),
+    );
+
+    assertTrue(result.success);
+    assertEqual(4n, result.nextStreamPosition);
+    assertThatArray(
+      messagesFromHook.map((m) => m.metadata.streamPosition),
+    ).containsElements([1n, 2n, 3n, 4n]);
+  });
+
+  void it('should increment stream position in events from beforeCommitHook correctly with expected stream position', async () => {
+    let messagesFromHook: RecordedMessage<
+      ShoppingCartEvent,
+      PostgresReadEventMetadata
+    >[] = [];
+
+    const beforeCommitHook: AppendToStreamBeforeCommitHook = (messages) => {
+      messagesFromHook = [
+        ...messagesFromHook,
+        ...(messages as RecordedMessage<
+          ShoppingCartEvent,
+          PostgresReadEventMetadata
+        >[]),
+      ];
+      return Promise.resolve();
+    };
+
+    const streamId = uuid();
+
+    let result = await pool.withConnection(async (connection) =>
+      appendToStream(connection, streamId, 'shopping_cart', events, {
+        beforeCommitHook,
+      }),
+    );
+
+    assertTrue(result.success);
+    assertEqual(result.nextStreamPosition, 2n);
+
+    const nextExpectedStreamVersion = result.nextStreamPosition;
+
+    result = await pool.withConnection(async (connection) =>
+      appendToStream(connection, streamId, 'shopping_cart', events, {
+        beforeCommitHook,
+        expectedStreamVersion: nextExpectedStreamVersion,
+      }),
+    );
+
+    assertTrue(result.success);
+    assertEqual(4n, result.nextStreamPosition);
+    assertThatArray(
+      messagesFromHook.map((m) => m.metadata.streamPosition),
+    ).containsElements([1n, 2n, 3n, 4n]);
+  });
+
+  void it('should handle stream position conflict correctly when two streams are created', async () => {
+    // Given
+    const streamId = uuid();
+
+    const firstResult = await pool.withConnection(async (connection) =>
+      appendToStream(connection, streamId, 'shopping_cart', events, {
+        expectedStreamVersion: 0n,
+      }),
+    );
+    assertTrue(firstResult.success);
+
+    // When
+    const secondResult = await pool.withConnection(async (connection) =>
+      appendToStream(connection, streamId, 'shopping_cart', events, {
+        expectedStreamVersion: 0n,
+      }),
+    );
+
+    // Then
+    assertFalse(secondResult.success);
+
+    const resultEvents = await pool.execute.query(
+      SQL`SELECT * FROM emt_messages WHERE stream_id = ${streamId}`,
+    );
+
+    assertEqual(events.length, resultEvents.rows.length);
+  });
+
+  void it('should handle stream position conflict correctly when version mismatches', async () => {
+    // Given
+    const streamId = uuid();
+
+    const creationResult = await pool.withConnection(async (connection) =>
+      appendToStream(connection, streamId, 'shopping_cart', events),
+    );
+    assertTrue(creationResult.success);
+    const expectedStreamVersion = creationResult.nextStreamPosition;
+
+    const firstResult = await pool.withConnection(async (connection) =>
+      appendToStream(connection, streamId, 'shopping_cart', events, {
+        expectedStreamVersion,
+      }),
+    );
+    assertTrue(firstResult.success);
+
+    // When
+    const secondResult = await pool.withConnection(async (connection) =>
+      appendToStream(connection, streamId, 'shopping_cart', events, {
+        expectedStreamVersion,
+      }),
+    );
+
+    // Then
+    assertFalse(secondResult.success);
+
+    const resultEvents = await pool.execute.query(
+      SQL`SELECT * FROM emt_messages WHERE stream_id = ${streamId}`,
+    );
+
+    assertEqual(events.length * 2, resultEvents.rows.length);
+  });
+
+  void it('should not have stream position conflict when version matches', async () => {
+    // Given
+    const streamId = uuid();
+    const expectedStreamVersion = 0n;
+
+    const firstResult = await pool.withConnection(async (connection) =>
+      appendToStream(connection, streamId, 'shopping_cart', events, {
+        expectedStreamVersion,
+      }),
+    );
+    assertTrue(firstResult.success);
+
+    // When
+    const secondResult = await pool.withConnection(async (connection) =>
+      appendToStream(connection, streamId, 'shopping_cart', events, {
+        expectedStreamVersion: firstResult.nextStreamPosition,
+      }),
+    );
+
+    // Then
+    assertTrue(secondResult.success);
+
+    const resultEvents = await pool.execute.query(
+      SQL`SELECT * FROM emt_messages WHERE stream_id = ${streamId}`,
+    );
+
+    assertEqual(events.length * 2, resultEvents.rows.length);
+  });
+
+  void it('should handle appending an empty events array gracefully', async () => {
+    const result = await pool.withConnection(async (connection) =>
+      appendToStream(connection, uuid(), 'shopping_cart', []),
+    );
+
+    assertFalse(result.success);
+  });
+
+  const readStoredVersions = (streamId: string) =>
+    pool.execute.query<{
+      message_schema_version: number;
+      message_metadata: Record<string, unknown>;
+    }>(
+      SQL`SELECT message_schema_version, message_metadata FROM emt_messages WHERE stream_id = ${streamId} ORDER BY stream_position`,
+    );
+
+  void it('stores the appended schema version in the column', async () => {
+    const streamId = uuid();
+    const event: Event<
+      'ProductItemAdded',
+      { productItem: PricedProductItem },
+      { meta: string },
+      2
+    > = {
+      type: 'ProductItemAdded',
+      data: { productItem: { productId: '1', quantity: 2, price: 30 } },
+      metadata: { meta: 'data1' },
+      schemaVersion: 2,
+    };
+
+    await pool.withConnection(async (connection) =>
+      appendToStream(connection, streamId, 'shopping_cart', [event]),
+    );
+
+    const { rows } = await readStoredVersions(streamId);
+
+    assertDeepEqual(
+      rows.map((row) => row.message_schema_version),
+      [2],
+    );
+  });
+
+  void it('stores schema version 1 when event has no schema version', async () => {
+    const streamId = uuid();
+
+    await pool.withConnection(async (connection) =>
+      appendToStream(connection, streamId, 'shopping_cart', events),
+    );
+
+    const { rows } = await readStoredVersions(streamId);
+
+    assertDeepEqual(
+      rows.map((row) => row.message_schema_version),
+      [1, 1],
+    );
+  });
+
+  void it('stores the version as a string in the raw metadata', async () => {
+    const streamId = uuid();
+    const event: Event<
+      'ProductItemAdded',
+      { productItem: PricedProductItem },
+      { meta: string },
+      2
+    > = {
+      type: 'ProductItemAdded',
+      data: { productItem: { productId: '1', quantity: 2, price: 30 } },
+      metadata: { meta: 'data1' },
+      schemaVersion: 2,
+    };
+
+    await pool.withConnection(async (connection) =>
+      appendToStream(connection, streamId, 'shopping_cart', [event]),
+    );
+
+    const { rows } = await readStoredVersions(streamId);
+
+    assertDeepEqual(
+      rows.map((row) => row.message_metadata),
+      [{ meta: 'data1', schemaVersion: '2' }],
+    );
+  });
+
+  void it('the stored metadata copy matches the column when user metadata has a version', async () => {
+    const streamId = uuid();
+    const event: Event<
+      'ProductItemAdded',
+      { productItem: PricedProductItem },
+      { meta: string; schemaVersion: string },
+      3
+    > = {
+      type: 'ProductItemAdded',
+      data: { productItem: { productId: '1', quantity: 2, price: 30 } },
+      metadata: { meta: 'data1', schemaVersion: '2' },
+      schemaVersion: 3,
+    };
+
+    const messageId = uuid();
+
+    const result = await pool.withConnection(async (connection) =>
+      appendToStream(connection, streamId, 'shopping_cart', [event], {
+        messageIdGenerator: () => messageId,
+      }),
+    );
+
+    assertTrue(result.success);
+    const globalPosition = PostgreSQLEventStoreCheckpoint.toProcessorCheckpoint(
+      result.checkpoints[0]!,
+    );
+    const { rows } = await readStoredVersions(streamId);
+    const { events: read } = await readStream(pool.execute, streamId);
+
+    assertDeepEqual(rows, [
+      {
+        message_schema_version: 3,
+        message_metadata: { meta: 'data1', schemaVersion: '3' },
+      },
+    ]);
+    assertDeepEqual<unknown[]>(read, [
+      {
+        type: 'ProductItemAdded',
+        kind: 'Event',
+        data: event.data,
+        schemaVersion: 3,
+        metadata: {
+          meta: 'data1',
+          messageId,
+          streamName: streamId,
+          streamPosition: 1n,
+          globalPosition,
+          checkpoint: globalPosition,
+        },
+      },
+    ]);
+  });
+
+  void it('the before-commit hook receives the top-level version', async () => {
+    const streamId = uuid();
+    const messageIds = [uuid(), uuid(), uuid()];
+    let nextMessageId = 0;
+    const productItem = { productId: '1', quantity: 2, price: 30 };
+    const versioned: Event<
+      'ProductItemAdded',
+      { productItem: PricedProductItem },
+      { meta: string },
+      2
+    > = {
+      type: 'ProductItemAdded',
+      data: { productItem },
+      metadata: { meta: 'data1' },
+      schemaVersion: 2,
+    };
+    const unversioned: ProductItemAdded = {
+      type: 'ProductItemAdded',
+      data: { productItem },
+      metadata: { meta: 'data2' },
+    };
+    const versionedOnlyInMetadata: Event<
+      'ProductItemAdded',
+      { productItem: PricedProductItem },
+      { meta: string; schemaVersion: string }
+    > = {
+      type: 'ProductItemAdded',
+      data: { productItem },
+      metadata: { meta: 'data3', schemaVersion: '2' },
+    };
+    let messagesFromHook: RecordedMessage[] = [];
+
+    const result = await pool.withConnection(async (connection) =>
+      appendToStream(
+        connection,
+        streamId,
+        'shopping_cart',
+        [versioned, unversioned, versionedOnlyInMetadata],
+        {
+          messageIdGenerator: () => messageIds[nextMessageId++]!,
+          beforeCommitHook: (messages) => {
+            messagesFromHook = messages;
+            return Promise.resolve();
+          },
+        },
+      ),
+    );
+
+    assertTrue(result.success);
+    const globalPositions = result.checkpoints.map((checkpoint) =>
+      PostgreSQLEventStoreCheckpoint.toProcessorCheckpoint(checkpoint),
+    );
+    assertDeepEqual<unknown[]>(
+      messagesFromHook,
+      [
+        { meta: 'data1', schemaVersion: 2 },
+        { meta: 'data2', schemaVersion: 1 },
+        { meta: 'data3', schemaVersion: 2 },
+      ].map(({ meta, schemaVersion }, index) => ({
+        type: 'ProductItemAdded',
+        kind: 'Event',
+        data: { productItem },
+        schemaVersion,
+        metadata: {
+          meta,
+          messageId: messageIds[index],
+          correlationId: undefined,
+          causationId: undefined,
+          traceId: undefined,
+          spanId: undefined,
+          streamName: streamId,
+          streamPosition: BigInt(index + 1),
+          globalPosition: globalPositions[index],
+        },
+      })),
+    );
+  });
+});

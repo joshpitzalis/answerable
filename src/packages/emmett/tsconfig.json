@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.shared.json",
+  "include": ["./src/**/*"],
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "./lib" /* Redirect output structure to the directory. */,
+    "tsBuildInfoFile": "./lib/tsconfig.tsbuildinfo",
+    "rootDir": "./src",
+    "paths": {
+      "@event-driven-io/almanac": ["../almanac/src"],
+      "@event-driven-io/almanac/*": ["../almanac/src/*"],
+      "@event-driven-io/emmett": ["./src"],
+      "@event-driven-io/emmett/*": ["./src/*"]
+    }
+  },
+  "references": [
+    {
+      "path": "../almanac/"
+    }
+  ]
+}

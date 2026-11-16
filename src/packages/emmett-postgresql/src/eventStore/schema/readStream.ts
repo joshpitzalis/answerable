@@ -1,0 +1,116 @@
+import { mapRows, SQL, type SQLExecutor } from '@event-driven-io/dumbo';
+import {
+  upcastRecordedMessage,
+  type CombinedReadEventMetadata,
+  type Event,
+  type EventDataOf,
+  type EventMetaDataOf,
+  type EventTypeOf,
+  type ReadEvent,
+  type ReadEventMetadataWithGlobalPosition,
+  type ReadStreamOptions,
+  type ReadStreamResult,
+  resolveSchemaVersion,
+  withoutSchemaVersion,
+} from '@event-driven-io/emmett';
+import { PostgreSQLEventStoreDefaultStreamVersion } from '../postgreSQLEventStore';
+import { PostgreSQLEventStoreCheckpoint } from './readMessagesBatch';
+import { defaultTag, messagesTable, tableReference } from './typing';
+
+type ReadStreamSqlResult<EventType extends Event> = {
+  stream_position: string;
+  message_data: EventDataOf<EventType>;
+  message_metadata: EventMetaDataOf<EventType>;
+  message_schema_version: string;
+  message_kind: string;
+  message_type: EventTypeOf<EventType>;
+  message_id: string;
+  global_position: string;
+  transaction_id: string;
+  created: string;
+};
+
+export const readStream = async <
+  EventType extends Event,
+  EventPayloadType extends Event = EventType,
+>(
+  execute: SQLExecutor,
+  streamId: string,
+  options?: ReadStreamOptions<EventType, EventPayloadType> & {
+    partition?: string;
+    databaseSchemaName?: string;
+  },
+): Promise<
+  ReadStreamResult<EventType, ReadEventMetadataWithGlobalPosition>
+> => {
+  const fromCondition: string = options?.from
+    ? `AND stream_position >= ${options.from}`
+    : '';
+
+  const to = Number(
+    options?.to ??
+      (options?.maxCount ? (options.from ?? 0n) + options.maxCount : NaN),
+  );
+
+  const toCondition = !isNaN(to) ? `AND stream_position <= ${to}` : '';
+
+  const events: ReadEvent<EventType, ReadEventMetadataWithGlobalPosition>[] =
+    await mapRows(
+      execute.query<ReadStreamSqlResult<EventPayloadType>>(
+        SQL`SELECT stream_id, stream_position, global_position, message_data, message_metadata, message_schema_version::text AS message_schema_version, message_kind, message_type, message_id, transaction_id
+           FROM ${tableReference(options?.databaseSchemaName, messagesTable.name)}
+           WHERE stream_id = ${streamId} AND partition = ${options?.partition ?? defaultTag} AND is_archived = FALSE ${SQL.plain(fromCondition)} ${SQL.plain(toCondition)}
+           ORDER BY stream_position ASC`,
+      ),
+      (row) => {
+        const rawEvent = {
+          type: row.message_type,
+          data: row.message_data,
+          metadata: row.message_metadata,
+        } as unknown as EventPayloadType;
+
+        const globalPosition =
+          PostgreSQLEventStoreCheckpoint.toProcessorCheckpoint({
+            transactionId: BigInt(row.transaction_id),
+            globalPosition: BigInt(row.global_position),
+          });
+
+        const metadata: ReadEventMetadataWithGlobalPosition = {
+          ...withoutSchemaVersion(row.message_metadata ?? {}),
+          messageId: row.message_id,
+          streamName: streamId,
+          streamPosition: BigInt(row.stream_position),
+          globalPosition,
+          checkpoint: globalPosition,
+        };
+
+        const event = {
+          ...rawEvent,
+          kind: row.message_kind === 'C' ? 'Command' : 'Event',
+          schemaVersion: resolveSchemaVersion(
+            row.message_schema_version,
+            row.message_metadata,
+          ),
+          metadata: metadata as CombinedReadEventMetadata<
+            EventPayloadType,
+            ReadEventMetadataWithGlobalPosition
+          >,
+        };
+
+        return upcastRecordedMessage(event, options?.schema?.versioning);
+      },
+    );
+
+  return events.length > 0
+    ? {
+        currentStreamVersion:
+          events[events.length - 1]!.metadata.streamPosition,
+        events,
+        streamExists: true,
+      }
+    : {
+        currentStreamVersion: PostgreSQLEventStoreDefaultStreamVersion,
+        events: [],
+        streamExists: false,
+      };
+};
