@@ -4,6 +4,7 @@ import type {
   SourceMessage,
   StoredMessage,
 } from "../../domain/harvest.values";
+import { clearRetry } from "./retries";
 
 // oxlint-disable-next-line typescript/consistent-type-definitions -- SQLite rows require an implicit index signature.
 export type MessageRow = {
@@ -152,6 +153,19 @@ export const ingestPage = (
   storage.transactionSync(() => {
     const counts = { inserted: 0, updated: 0, unchanged: 0 };
 
+    const { generation } = storage.sql
+      .exec<{ generation: number }>(
+        "SELECT generation FROM harvest_cycle WHERE id=1"
+      )
+      .one();
+
+    if (
+      page.expectedGeneration !== undefined &&
+      page.expectedGeneration !== generation
+    ) {
+      return counts;
+    }
+
     for (const message of page.messages) {
       if (
         message.channelId !== page.progress.streamId ||
@@ -180,5 +194,6 @@ export const ingestPage = (
       progress.generation ?? 0
     );
 
+    clearRetry(storage.sql, "acquisition", progress.streamId, page.expectedGeneration);
     return counts;
   });

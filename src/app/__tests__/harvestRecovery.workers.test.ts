@@ -4,6 +4,7 @@ import { env } from "cloudflare:workers";
 import { Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 
+import { Corpus } from "../../features/question-finder/services/corpus";
 import {
   Judge,
   JudgeFailed,
@@ -28,6 +29,7 @@ import {
 describe("durable Harvest", () => {
   it("retries saved pending content after a Judge failure and reconstruction without redownloading", async () => {
     const project = textProject("judge-retry");
+    const time = { now: 2_000_000_000_000 };
     const stub = projectHarvestStub(env.PROJECT_HARVEST, project, "live");
 
     const failing = Layer.succeed(
@@ -41,7 +43,9 @@ describe("durable Harvest", () => {
       stub,
       discordPage([sourceMessage("101")]),
       failing,
-      (runtime) => harvestStoredProject(runtime, project, "live")
+      (runtime) => harvestStoredProject(runtime, project, "live"),
+      Corpus.stub,
+      time
     );
 
     expect(reply.harvest).toMatchObject({
@@ -53,12 +57,15 @@ describe("durable Harvest", () => {
       { name: "help", reason: "Saved messages could not be judged" },
     ]);
     await evictDurableObject(stub);
+    time.now += 1000;
 
     const recovered = await withHarvestRuntime(
       stub,
       unavailableDiscord,
       Judge.everythingAnswerable,
-      (runtime) => harvestStoredProject(runtime, project, "live")
+      (runtime) => harvestStoredProject(runtime, project, "live"),
+      Corpus.stub,
+      time
     );
 
     expect(recovered.questions.map((row) => row.id)).toStrictEqual(["101"]);

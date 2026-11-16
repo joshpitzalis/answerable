@@ -1,15 +1,15 @@
 import { runInDurableObject } from "cloudflare:test";
-import { Effect, Layer } from "effect";
-import type { ManagedRuntime } from "effect";
+import { Effect, Layer, ManagedRuntime } from "effect";
 
 import type { Project } from "../../features/question-finder/domain";
 import type { SourceMessage } from "../../features/question-finder/domain/harvest.values";
 import { Corpus } from "../../features/question-finder/services/corpus";
 import { Discord } from "../../features/question-finder/services/discord";
 import type { Judge } from "../../features/question-finder/services/judge";
+import { ProjectStorage } from "../../features/question-finder/services/projectStorage";
 import type { StoredHarvestServices } from "../../features/question-finder/workflows/harvestStoredProject";
 import type { ProjectHarvest } from "../projectHarvest";
-import { createProjectHarvestRuntime } from "../projectHarvestRuntime";
+import { testClock } from "./scheduledHarvest.test-utils";
 
 export const textProject = (id: string): Project => ({
   id,
@@ -69,14 +69,18 @@ export const withHarvestRuntime = <A>(
   use: (
     runtime: ManagedRuntime.ManagedRuntime<StoredHarvestServices, never>
   ) => Promise<A>,
-  corpus: Layer.Layer<Corpus> = Corpus.stub
+  corpus: Layer.Layer<Corpus> = Corpus.stub,
+  time?: { now: number }
 ) =>
   runInDurableObject(stub, async (_instance, state) => {
-    const runtime = createProjectHarvestRuntime(
-      state.storage,
-      discord,
-      judge,
-      corpus
+    const runtime = ManagedRuntime.make(
+      Layer.mergeAll(
+        ProjectStorage.layer(state.storage),
+        discord,
+        judge,
+        corpus,
+        testClock(time ?? { now: Date.now() })
+      )
     );
 
     try {

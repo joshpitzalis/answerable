@@ -39,6 +39,18 @@ export const projectMigrations = [
     process_turn INTEGER NOT NULL DEFAULT 0
   );
   INSERT INTO harvest_cycle (id) VALUES (1);`,
+  `CREATE TABLE harvest_schedule (
+    id INTEGER PRIMARY KEY CHECK(id=1), project_id TEXT, mode TEXT,
+    next_due INTEGER, next_alarm INTEGER, last_manual INTEGER, run_generation INTEGER,
+    global_pause INTEGER NOT NULL DEFAULT 0, retry_cycle_at INTEGER NOT NULL DEFAULT 0
+  );
+  INSERT INTO harvest_schedule (id) VALUES (1);
+  CREATE TABLE harvest_retries (
+    kind TEXT NOT NULL, work_id TEXT NOT NULL, channel_id TEXT NOT NULL,
+    generation INTEGER NOT NULL, attempts INTEGER NOT NULL, next_due INTEGER NOT NULL,
+    exhausted INTEGER NOT NULL, reason TEXT NOT NULL,
+    PRIMARY KEY(kind, work_id)
+  );`,
 ];
 
 export const migrateProjectStorage = (

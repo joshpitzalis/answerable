@@ -3,19 +3,30 @@ import type { ProcessingCandidate } from "../../domain/harvest.values";
 import { messageFromRow } from "./content";
 import type { MessageRow } from "./content";
 import { saveQuestions } from "./questions";
+import { clearRetry } from "./retries";
 
 export const pendingCandidates = (
   sql: SqlStorage,
   channelIds: readonly string[],
-  limit: number
+  limit: number,
+  at = Date.now()
 ): ProcessingCandidate[] =>
   sql
-    .exec<MessageRow & { policy_revision: string; context_revision: string }>(
-      `SELECT messages.*, processing.policy_revision, processing.context_revision FROM messages
-    JOIN processing ON message_id = id WHERE completed = 0 AND deleted_at IS NULL
+    .exec<
+      MessageRow & {
+        policy_revision: string;
+        context_revision: string;
+        generation: number;
+      }
+    >(
+      `SELECT messages.*, processing.policy_revision, processing.context_revision, harvest_cycle.generation FROM messages
+    CROSS JOIN harvest_cycle
+    JOIN processing ON message_id = messages.id WHERE completed = 0 AND deleted_at IS NULL
     AND parent_channel_id IN (${channelIds.map(() => "?").join(",")})
-    ORDER BY length(id), id LIMIT ?`,
+    AND NOT EXISTS (SELECT 1 FROM harvest_retries WHERE kind='processing' AND work_id=message_id AND generation=harvest_cycle.generation AND (exhausted=1 OR next_due>?))
+    ORDER BY length(messages.id), messages.id LIMIT ?`,
       ...channelIds,
+      at,
       limit
     )
     .toArray()
@@ -23,6 +34,7 @@ export const pendingCandidates = (
       message: messageFromRow(row),
       policyRevision: row.policy_revision,
       contextRevision: row.context_revision,
+      generation: row.generation,
     }));
 
 export const countPendingCandidates = (
@@ -78,12 +90,15 @@ export const completeProcessing = (
       .exec(
         `UPDATE processing SET completed=1, failure=NULL
       WHERE message_id=? AND source_revision=? AND policy_revision=? AND context_revision=?
+      AND (? IS NULL OR EXISTS (SELECT 1 FROM harvest_cycle WHERE generation=?))
       AND EXISTS (SELECT 1 FROM messages WHERE id=message_id AND source_revision=? AND deleted_at IS NULL)
       RETURNING message_id`,
         candidate.message.id,
         candidate.message.sourceRevision,
         candidate.policyRevision,
         candidate.contextRevision,
+        candidate.generation ?? null,
+        candidate.generation ?? null,
         candidate.message.sourceRevision
       )
       .toArray();
@@ -101,5 +116,6 @@ export const completeProcessing = (
       saveQuestions(storage.sql, [row]);
     }
 
+    clearRetry(storage.sql, "processing", candidate.message.id, candidate.generation);
     return true;
   });

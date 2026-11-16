@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Schema } from "effect";
+import { Clock, Context, Effect, Layer, Schema } from "effect";
 
 import type { Project, QuestionsRow } from "../../domain";
 import type {
@@ -10,6 +10,10 @@ import type {
   StoredMessage,
   StoredQuestionsReply,
 } from "../../domain/harvest.values";
+import type {
+  HarvestRetry,
+  HarvestSchedule,
+} from "../../domain/schedule.values";
 import { ingestPage, readMessages } from "./content";
 import { beginCycle, claimAcquisition, claimProcessing } from "./cycle";
 import {
@@ -26,6 +30,13 @@ import {
   recordFailure,
 } from "./progress";
 import { readQuestions, saveQuestions } from "./questions";
+import { clearRetry, recordRetry } from "./retries";
+import {
+  completeScheduledBatch,
+  readSchedule,
+  requestScheduledHarvest,
+  startScheduledBatch,
+} from "./schedule";
 
 export { migrateProjectStorage, projectMigrations } from "./migrations";
 
@@ -43,6 +54,29 @@ const attempt = <A>(operation: string, body: () => A) =>
 export class ProjectStorage extends Context.Service<
   ProjectStorage,
   {
+    readonly schedule: Effect.Effect<HarvestSchedule, ProjectStorageError>;
+    readonly requestScheduled: (
+      project: Project,
+      mode: "live" | "fixture",
+      manual: boolean,
+      at: number
+    ) => Effect.Effect<void, ProjectStorageError>;
+    readonly finishScheduled: (
+      project: Project,
+      at: number
+    ) => Effect.Effect<number, ProjectStorageError>;
+    readonly startScheduled: (
+      project: Project,
+      at: number
+    ) => Effect.Effect<void, ProjectStorageError>;
+    readonly retry: (
+      failure: HarvestRetry
+    ) => Effect.Effect<void, ProjectStorageError>;
+    readonly clearRetry: (
+      kind: HarvestRetry["kind"],
+      workId: string,
+      generation?: number
+    ) => Effect.Effect<void, ProjectStorageError>;
     readonly beginCycle: Effect.Effect<void, ProjectStorageError>;
     readonly claimAcquisition: (
       project: Project
@@ -103,11 +137,46 @@ export class ProjectStorage extends Context.Service<
     Layer.succeed(
       ProjectStorage,
       ProjectStorage.of({
+        schedule: attempt("schedule", () => readSchedule(storage.sql)),
+        requestScheduled: (project, mode, manual, at) =>
+          attempt("requestScheduled", () =>
+            requestScheduledHarvest(storage, project, mode, manual, at)
+          ),
+        finishScheduled: (project, at) =>
+          attempt("finishScheduled", () =>
+            completeScheduledBatch(storage.sql, project, at)
+          ),
+        startScheduled: (project, at) =>
+          attempt("startScheduled", () =>
+            startScheduledBatch(storage, project, at)
+          ),
+        retry: (failure) =>
+          Clock.currentTimeMillis.pipe(
+            Effect.flatMap((at) =>
+              attempt("retry", () => recordRetry(storage, failure, at))
+            )
+          ),
+        clearRetry: (kind, workId, generation) =>
+          attempt("clearRetry", () =>
+            clearRetry(storage.sql, kind, workId, generation)
+          ),
         beginCycle: attempt("beginCycle", () => beginCycle(storage.sql)),
         claimAcquisition: (project) =>
-          attempt("claimAcquisition", () => claimAcquisition(storage, project)),
+          Clock.currentTimeMillis.pipe(
+            Effect.flatMap((at) =>
+              attempt("claimAcquisition", () =>
+                claimAcquisition(storage, project, at)
+              )
+            )
+          ),
         claimProcessing: (project) =>
-          attempt("claimProcessing", () => claimProcessing(storage, project)),
+          Clock.currentTimeMillis.pipe(
+            Effect.flatMap((at) =>
+              attempt("claimProcessing", () =>
+                claimProcessing(storage, project, at)
+              )
+            )
+          ),
         saveQuestions: (rows) =>
           attempt("saveQuestions", () =>
             storage.transactionSync(() => saveQuestions(storage.sql, rows))
@@ -117,7 +186,13 @@ export class ProjectStorage extends Context.Service<
         ),
         requestWake: (at) =>
           Effect.tryPromise({
-            try: () => storage.setAlarm(at),
+            try: async () => {
+              await storage.setAlarm(at);
+              storage.sql.exec(
+                "UPDATE harvest_schedule SET next_alarm=? WHERE id=1",
+                at
+              );
+            },
             catch: (cause) =>
               new ProjectStorageError({ operation: "requestWake", cause }),
           }),
@@ -144,7 +219,13 @@ export class ProjectStorage extends Context.Service<
           attempt("ingestPage", () => ingestPage(storage, page)),
         messages: attempt("messages", () => readMessages(storage.sql)),
         pending: (ids, limit = 20) =>
-          attempt("pending", () => pendingCandidates(storage.sql, ids, limit)),
+          Clock.currentTimeMillis.pipe(
+            Effect.flatMap((at) =>
+              attempt("pending", () =>
+                pendingCandidates(storage.sql, ids, limit, at)
+              )
+            )
+          ),
         complete: (candidate, row) =>
           attempt("complete", () =>
             completeProcessing(storage, candidate, row)

@@ -162,15 +162,31 @@ export const readSavedProject = (
     .toArray()
     .filter((row) => ids.includes(row.parent_channel_id));
 
-  const failedChannels = progress.flatMap((row) => {
-    const channel = project.channels.find(
-      (item) => item.id === row.parent_channel_id
-    );
+  const failures = [
+    ...progress,
+    ...sql
+      .exec<{ parent_channel_id: string; failure: string }>(
+        "SELECT channel_id AS parent_channel_id, reason AS failure FROM harvest_retries"
+      )
+      .toArray(),
+  ];
 
-    return channel === undefined || row.failure === null
-      ? []
-      : [{ name: channel.name, reason: row.failure }];
-  });
+  const failedChannels = failures
+    .flatMap((row) => {
+      const channel = project.channels.find(
+        (item) => item.id === row.parent_channel_id
+      );
+
+      return channel === undefined || row.failure === null
+        ? []
+        : [{ name: channel.name, reason: row.failure }];
+    })
+    .filter(
+      (failure, index, all) =>
+        all.findIndex(
+          (item) => item.name === failure.name && item.reason === failure.reason
+        ) === index
+    );
 
   const pendingProcessing = countPendingCandidates(sql, ids);
   const cycle = readCycle(sql);
@@ -209,6 +225,11 @@ export const readSavedProject = (
       lastCompleteSuccess: state.last_complete_success,
       initialCoverage: "latest-50",
       pendingProcessing,
+      nextEligibleAt: sql
+        .exec<{ next_due: number | null }>(
+          "SELECT next_due FROM harvest_schedule WHERE id=1"
+        )
+        .one().next_due,
     },
   };
 };

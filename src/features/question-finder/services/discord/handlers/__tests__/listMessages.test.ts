@@ -71,7 +71,7 @@ describe(listMessages, () => {
     );
 
     expect(failure).toStrictEqual(
-      new DiscordRateLimited({ retryAfterMs: 2500 })
+      new DiscordRateLimited({ retryAfterMs: 2500, global: false })
     );
     expect(failure._tag).toBe("DiscordRateLimited");
   });
@@ -103,7 +103,7 @@ describe(listMessages, () => {
     );
 
     expect(failure).toStrictEqual(
-      new DiscordRateLimited({ retryAfterMs: 3000 })
+      new DiscordRateLimited({ retryAfterMs: 3000, global: false })
     );
   });
 
@@ -114,6 +114,18 @@ describe(listMessages, () => {
 
     expect(failure).toStrictEqual(
       new DiscordFailed({ reason: "GET /channels/1/messages returned 429" })
+    );
+  });
+
+  it("preserves Discord's global pause scope", async () => {
+    const failure = await failureOf(
+      respondWith(
+        Response.json({ retry_after: 4.5, global: true }, { status: 429 })
+      )
+    );
+
+    expect(failure).toStrictEqual(
+      new DiscordRateLimited({ retryAfterMs: 4500, global: true })
     );
   });
 

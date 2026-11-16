@@ -26,6 +26,7 @@ export interface StoredMessage extends SourceMessage {
 }
 
 export interface ProcessingCandidate {
+  readonly generation?: number;
   readonly message: StoredMessage;
   readonly policyRevision: string;
   readonly contextRevision: string;
@@ -49,6 +50,7 @@ export interface HarvestTurn {
 }
 
 export interface PageIngestion {
+  readonly expectedGeneration?: number;
   readonly messages: readonly SourceMessage[];
   readonly progress: FetchProgress;
   readonly observedAt: number;
@@ -62,12 +64,13 @@ export interface IngestionCounts {
 }
 
 export interface HarvestStatus {
-  readonly status: "new" | "working" | "current" | "partial";
+  readonly status: "new" | "working" | "waiting" | "current" | "partial";
   readonly activatedAt: number | null;
   readonly lastAttempt: number | null;
   readonly lastCompleteSuccess: number | null;
   readonly initialCoverage: "latest-50";
   readonly pendingProcessing: number;
+  readonly nextEligibleAt: number | null;
 }
 
 export interface StoredQuestionsReply extends QuestionsReply {

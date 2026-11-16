@@ -1,5 +1,6 @@
 import type { Project } from "../../domain";
 import type { HarvestTurn } from "../../domain/harvest.values";
+import { workEligible } from "./retries";
 
 // oxlint-disable-next-line typescript/consistent-type-definitions -- SQLite rows require an implicit index signature.
 type CycleRow = {
@@ -20,7 +21,8 @@ export const beginCycle = (sql: SqlStorage): void => {
 
 export const claimAcquisition = (
   storage: DurableObjectStorage,
-  project: Project
+  project: Project,
+  at = Date.now()
 ): HarvestTurn | null =>
   storage.transactionSync(() => {
     const cycle = readCycle(storage.sql);
@@ -40,7 +42,16 @@ export const claimAcquisition = (
         )
         .one();
 
-      if (progress.generation >= cycle.generation) {
+      if (
+        progress.generation >= cycle.generation ||
+        !workEligible(
+          storage.sql,
+          "acquisition",
+          channel.id,
+          cycle.generation,
+          at
+        )
+      ) {
         continue;
       }
 
@@ -58,7 +69,8 @@ export const claimAcquisition = (
 
 export const claimProcessing = (
   storage: DurableObjectStorage,
-  project: Project
+  project: Project,
+  at = Date.now()
 ): string | null =>
   storage.transactionSync(() => {
     const cycle = readCycle(storage.sql);
@@ -70,8 +82,11 @@ export const claimProcessing = (
       const pending = storage.sql
         .exec<{ found: number }>(
           `SELECT 1 AS found FROM processing JOIN messages ON messages.id=message_id
-        WHERE parent_channel_id=? AND completed=0 AND deleted_at IS NULL LIMIT 1`,
-          channel.id
+        WHERE parent_channel_id=? AND completed=0 AND deleted_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM harvest_retries WHERE kind='processing' AND work_id=message_id AND generation=? AND (exhausted=1 OR next_due>?)) LIMIT 1`,
+          channel.id,
+          cycle.generation,
+          at
         )
         .toArray();
 
