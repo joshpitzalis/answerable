@@ -13,9 +13,9 @@ Issues #17/#18 add `ProjectHarvest.harvest(project)`, `requestHarvest(project)` 
 
 ## Discord boundary and continuation handoff
 
-`Discord.sourcePage` validates message and author identity, timestamps, page size and Channel membership before returning anything. It returns a text page, public-thread discovery page, or forum starter. `threadId` is nullable: an ordinary message ID never stands in for a thread ID.
+`Discord.sourcePage` validates message and author identity, timestamps, page size and Channel membership before returning anything. It returns a text page, public-thread discovery page, starter or tracked-thread message page. `threadId` is nullable: an ordinary message ID never stands in for a thread ID.
 
-The adapter makes four sequential metadata calls (application, Channel, guild, bot member), then one data call. A batch acquires exactly one text page, discovery page or starter at most, staying within five actual Discord calls. It checks Message Content Intent and effective View Channel/Read Message History permissions, including overwrites. #20 must count reply requests against that same bound; a method invocation is not necessarily one wire request. A successful empty response alone is not proof of readable content.
+The adapter makes four sequential metadata calls (application, Channel, guild, bot member), then one data call. A batch acquires at most one text page, discovery page, starter or thread page, staying within five actual Discord calls. It checks Message Content Intent and effective View Channel/Read Message History permissions, including overwrites. A method invocation is not necessarily one wire request. A successful empty response alone is not proof of readable content.
 
 ## Bounded work contract (#18)
 
@@ -59,7 +59,7 @@ Replies contribute by author ID but never acquire standalone processing rows. A 
 
 ## Reprocessing contract (#22)
 
-`prepareProcessing(project, mode)` obtains a `Corpus.snapshot`: the Posts and a SHA-256 revision of their ordered slug/title/body fields. Fixture policy includes that revision; the live accept-all Judge ignores evidence changes intentionally. It requeues retained messages only when their policy differs. The same Posts snapshot must be passed to `processCandidate(project, candidate, posts)`, so a result cannot be labelled with a different evidence revision. Run preparation inside XState after validating Project identity, before the cached-current decision and before acquisition.
+`prepareProcessing(project, mode)` obtains a `Corpus.snapshot`: the Posts and a SHA-256 revision of their ordered slug/title/body fields. Fixture policy includes that revision; the live accept-all Judge ignores evidence changes intentionally. It requeues retained messages only when their policy differs. The same Posts snapshot must be passed to `processCandidate(project, candidate, posts, mode)`, so a result cannot be labelled with a different evidence revision. Run preparation inside XState after validating Project identity, before the cached-current decision and before acquisition.
 
 `ProjectStorage.reprocess(channelIds, policyRevision)` is one atomic SQL update; rejected messages and nonquestions remain available. Failed processing preserves the prior question and last complete success. Reads never invoke preparation, Discord or Judge. `pending(channelIds, limit=20)` filters and limits in SQLite; freshness uses a separate count of all pending work.
 

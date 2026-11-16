@@ -58,14 +58,17 @@ describe("thread retry scheduling", () => {
         const saved = await runtime.runPromise(
           ProjectStorage.use((store) => store.read(project))
         );
+
         expect(saved).toMatchObject({
           harvest: { status: "partial" },
           questions: [{ id: "101", comments: 1 }],
         });
         expect(saved.failedChannels).toHaveLength(1);
+
         const progress = await runtime.runPromise(
           ProjectStorage.use((store) => store.progress("101"))
         );
+
         expect(progress.completedBoundary).toBe("102");
       }
     );

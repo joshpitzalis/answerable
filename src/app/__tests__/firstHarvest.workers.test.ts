@@ -27,7 +27,12 @@ describe("saved Project reads", () => {
       stub,
       discordPage([sourceMessage("101"), sourceMessage("100", "Hello")]),
       Judge.everythingAnswerable,
-      (runtime) => harvestStoredProject(runtime, project, "live")
+      async (runtime) => {
+        await harvestStoredProject(runtime, project, "live");
+        await harvestStoredProject(runtime, project, "live");
+
+        return harvestStoredProject(runtime, project, "live");
+      }
     );
 
     expect(reply.questions.map((row) => row.id)).toStrictEqual(["101"]);
@@ -64,7 +69,12 @@ describe("saved Project reads", () => {
       stub,
       discordPage([sourceMessage("101")]),
       Judge.everythingAnswerable,
-      (runtime) => harvestStoredProject(runtime, project, "live")
+      async (runtime) => {
+        await harvestStoredProject(runtime, project, "live");
+        await harvestStoredProject(runtime, project, "live");
+
+        return harvestStoredProject(runtime, project, "live");
+      }
     );
 
     const replay = await withHarvestRuntime(

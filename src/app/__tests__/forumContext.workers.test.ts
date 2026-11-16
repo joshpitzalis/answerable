@@ -42,6 +42,7 @@ describe("forum processing context", () => {
         await harvestStoredProject(runtime, project, "live");
         await harvestStoredProject(runtime, project, "live");
         await harvestStoredProject(runtime, project, "live");
+        await harvestStoredProject(runtime, project, "live");
         wire.state.active = [
           { ...forumThread("101"), name: "A changed title" },
         ];
@@ -129,6 +130,7 @@ describe("forum processing context", () => {
       Discord.layer("invented", fetch),
       Judge.everythingAnswerable,
       async (runtime) => {
+        await harvestStoredProject(runtime, project, "live");
         await harvestStoredProject(runtime, project, "live");
         await harvestStoredProject(runtime, project, "live");
         await harvestStoredProject(runtime, project, "live");

@@ -29,7 +29,7 @@ describe("stored forum Harvest", () => {
       Discord.layer("invented", wire.fetch),
       Judge.everythingAnswerable,
       async (runtime) => {
-        for (let batch = 0; batch < 52; batch += 1) {
+        for (let batch = 0; batch < 2 + 50 * 2; batch += 1) {
           const before = wire.state.requests.length;
           // oxlint-disable-next-line no-await-in-loop -- Each batch resumes its predecessor's committed continuation.
           await harvestStoredProject(runtime, project, "live");
@@ -55,7 +55,7 @@ describe("stored forum Harvest", () => {
         wire.state.active.push(...added, ...added);
         await runtime.runPromise(requestStoredHarvest(project));
 
-        for (let batch = 0; batch < 57; batch += 1) {
+        for (let batch = 0; batch < 2 + 55 + 105; batch += 1) {
           // oxlint-disable-next-line no-await-in-loop -- Simulates successive bounded alarms.
           await harvestStoredProject(runtime, project, "live");
         }
@@ -133,6 +133,7 @@ describe("stored forum Harvest", () => {
           timestamp: "2026-11-01T00:00:00Z",
           author: { id: "900", username: "Writer" },
         },
+        "/channels/101/messages": [],
       };
 
       const response = Object.entries(responses).find(
@@ -171,6 +172,7 @@ describe("stored forum Harvest", () => {
       wire,
       Judge.everythingAnswerable,
       async (runtime) => {
+        await harvestStoredProject(runtime, project, "live");
         const reply = await harvestStoredProject(runtime, project, "live");
         expect(reply.questions).toMatchObject([
           {

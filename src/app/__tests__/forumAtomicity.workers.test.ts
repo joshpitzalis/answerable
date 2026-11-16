@@ -57,7 +57,11 @@ describe("forum starter transaction", () => {
       stub,
       Discord.layer("invented", wire.fetch),
       Judge.everythingAnswerable,
-      (runtime) => harvestStoredProject(runtime, project, "live")
+      async (runtime) => {
+        await harvestStoredProject(runtime, project, "live");
+
+        return harvestStoredProject(runtime, project, "live");
+      }
     );
 
     expect(saved.questions).toMatchObject([{ id: "101" }]);

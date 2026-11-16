@@ -67,11 +67,13 @@ describe("forum discovery boundary", () => {
     );
 
     expect(result).toStrictEqual({
+      isForum: true,
       scope: "active",
       hasMore: false,
       threads: [
         {
           id: "101",
+          isPost: true,
           parentChannelId: "800",
           title: "A forum question",
           starterId: "101",
