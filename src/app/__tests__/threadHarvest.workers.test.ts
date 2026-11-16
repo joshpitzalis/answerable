@@ -19,12 +19,14 @@ describe("stored thread comments", () => {
     const stub = projectHarvestStub(env.PROJECT_HARVEST, project, "live");
     const wire = forumWire();
     wire.state.active = [forumThread("101")];
+
     const base = {
       channel_id: "101",
       content: "Reply?",
       timestamp: "2026-11-01T00:00:00Z",
       author: { id: "901", username: "Commenter" },
     };
+
     wire.state.messages.set(
       "101",
       Array.from({ length: 121 }, (_, index) => ({
@@ -78,7 +80,7 @@ describe("stored thread comments", () => {
       wire.state.requests
         .filter((url) => url.pathname.endsWith("/101/messages"))
         .map((url) => url.searchParams.get("before"))
-    ).toEqual([null, "172", "122"]);
+    ).toStrictEqual([null, "172", "122"]);
   });
 
   it.each(["live", "fixture"] as const)(
@@ -128,6 +130,7 @@ describe("stored thread comments", () => {
     const stub = projectHarvestStub(env.PROJECT_HARVEST, project, "live");
     const wire = forumWire();
     wire.state.active = [forumThread("101")];
+
     const starter = {
       id: "101",
       channel_id: "101",
@@ -135,6 +138,7 @@ describe("stored thread comments", () => {
       timestamp: "2026-11-01T00:00:00Z",
       author: { id: "900", username: "Writer" },
     };
+
     wire.state.messages.set("101", [
       starter,
       {
@@ -168,14 +172,12 @@ describe("stored thread comments", () => {
       }
     );
     await evictDurableObject(stub);
-    wire.state.messages
-      .get("101")
-      ?.push({
-        ...starter,
-        id: "103",
-        content: "Another reply",
-        author: { id: "902", username: "Later" },
-      });
+    wire.state.messages.get("101")?.push({
+      ...starter,
+      id: "103",
+      content: "Another reply",
+      author: { id: "902", username: "Later" },
+    });
     await withHarvestRuntime(
       stub,
       Discord.layer("invented", wire.fetch),

@@ -11,12 +11,14 @@ import { readCycle } from "./cycle";
 import { finishDiscovery, fromThread, saveThread, scan } from "./forumState";
 import type { ThreadRow } from "./forumState";
 import { readProgress } from "./progress";
+import { clearRetry } from "./retries";
 import { invalidateThreadContext } from "./threadContext";
 
 export const nextForumRequest = (
   sql: SqlStorage,
   channelId: string,
-  generation: number
+  generation: number,
+  at: number
 ): ForumRequest | undefined => {
   const previous = scan(sql, channelId);
 
@@ -25,7 +27,9 @@ export const nextForumRequest = (
     previous.generation !== generation ||
     previous.active_done === 0
   ) {
-    return readProgress(sql, channelId).generation === generation ? { kind: "active" } : undefined;
+    return readProgress(sql, channelId).generation === generation
+      ? { kind: "active" }
+      : undefined;
   }
 
   if (previous.archive_done === 0) {
@@ -36,15 +40,19 @@ export const nextForumRequest = (
     .exec<ThreadRow>(
       `SELECT * FROM discord_threads WHERE parent_channel_id=?
       AND (starter_pending=1 OR collect_pending=1 OR (archived=0 AND collected_generation<?))
+      AND NOT EXISTS (SELECT 1 FROM harvest_retries WHERE kind='acquisition' AND work_id=discord_threads.id AND generation=? AND (exhausted=1 OR next_due>?))
       ORDER BY last_selected,length(id),id LIMIT 1`,
       channelId,
-      generation
+      generation,
+      generation,
+      at
     )
     .toArray();
 
   if (pending === undefined) {
     return undefined;
   }
+
   sql.exec(
     "UPDATE discord_threads SET last_selected=(SELECT COALESCE(MAX(last_selected),0)+1 FROM discord_threads) WHERE id=?",
     pending.id
@@ -100,7 +108,14 @@ export const saveThreadPage = (
                 sql
                   .exec("SELECT id FROM discord_threads WHERE id=?", thread.id)
                   .toArray().length > 0 ||
-                (page.isForum === false && sql.exec("SELECT id FROM messages WHERE id=? AND parent_channel_id=?", thread.starterId, channelId).toArray().length > 0)
+                (page.isForum === false &&
+                  sql
+                    .exec(
+                      "SELECT id FROM messages WHERE id=? AND parent_channel_id=?",
+                      thread.starterId,
+                      channelId
+                    )
+                    .toArray().length > 0)
             );
 
       for (const thread of selected) {
@@ -116,6 +131,7 @@ export const saveThreadPage = (
         new Date(at).toISOString()
       );
       finishDiscovery(sql, channelId, generation, at);
+      clearRetry(sql, "acquisition", channelId, generation);
 
       return true;
     }
@@ -156,6 +172,7 @@ export const saveThreadPage = (
       channelId
     );
     finishDiscovery(sql, channelId, generation, at);
+    clearRetry(sql, "acquisition", channelId, generation);
 
     return true;
   });
@@ -183,7 +200,11 @@ export const saveForumStarter = (
       )
       .one();
 
-    if (message.channelId !== (row.is_post === 1 ? row.id : row.parent_channel_id) || message.threadId !== row.id) {
+    if (
+      message.channelId !==
+        (row.is_post === 1 ? row.id : row.parent_channel_id) ||
+      message.threadId !== row.id
+    ) {
       throw new Error("Forum starter belongs to another thread");
     }
 
@@ -196,4 +217,5 @@ export const saveForumStarter = (
     invalidateThreadContext(sql, message.id);
     sql.exec("UPDATE discord_threads SET starter_pending=0 WHERE id=?", row.id);
     finishDiscovery(sql, channelId, generation, at);
+    clearRetry(sql, "acquisition", row.id, generation);
   });

@@ -71,10 +71,13 @@ export const processCandidate = (
   }).pipe(
     Effect.catchTag("JudgeFailed", () =>
       ProjectStorage.use((store) =>
-        store.fail(
-          candidate.message.parentChannelId,
-          "Saved messages could not be judged"
-        )
+        store.retry({
+          kind: "processing",
+          workId: candidate.message.id,
+          channelId: candidate.message.parentChannelId,
+          generation: candidate.generation,
+          reason: "Saved messages could not be judged",
+        })
       )
     )
   );

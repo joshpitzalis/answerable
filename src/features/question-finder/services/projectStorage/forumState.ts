@@ -61,8 +61,21 @@ export const saveThread = (
     at,
     Number(thread.isPost !== false)
   );
-  sql.exec("UPDATE discord_threads SET starter_pending=0 WHERE id=? AND EXISTS (SELECT 1 FROM messages WHERE id=?)", thread.id, thread.starterId);
-  if (thread.isPost === false) sql.exec("UPDATE messages SET thread_id=? WHERE id=? AND channel_id=?", thread.id, thread.starterId, thread.parentChannelId);
+  sql.exec(
+    "UPDATE discord_threads SET starter_pending=0 WHERE id=? AND EXISTS (SELECT 1 FROM messages WHERE id=?)",
+    thread.id,
+    thread.starterId
+  );
+
+  if (thread.isPost === false) {
+    sql.exec(
+      "UPDATE messages SET thread_id=? WHERE id=? AND channel_id=?",
+      thread.id,
+      thread.starterId,
+      thread.parentChannelId
+    );
+  }
+
   sql.exec(
     "INSERT OR IGNORE INTO fetch_progress (stream_id,parent_channel_id,completed_boundary,seeded) VALUES (?,?,'0',1)",
     thread.id,
@@ -106,8 +119,24 @@ export const finishDiscovery = (
   );
 };
 
-export const discoveryComplete = (sql: SqlStorage, channelId: string, generation: number): boolean => {
+export const discoveryComplete = (
+  sql: SqlStorage,
+  channelId: string,
+  generation: number
+): boolean => {
   const current = scan(sql, channelId);
-  if (current?.generation !== generation || current.archive_done !== 1) return false;
-  return sql.exec("SELECT id FROM discord_threads WHERE parent_channel_id=? AND (starter_pending=1 OR collect_pending=1 OR (archived=0 AND collected_generation<?)) LIMIT 1", channelId, generation).toArray().length === 0;
+
+  if (current?.generation !== generation || current.archive_done !== 1) {
+    return false;
+  }
+
+  return (
+    sql
+      .exec(
+        "SELECT id FROM discord_threads WHERE parent_channel_id=? AND (starter_pending=1 OR collect_pending=1 OR (archived=0 AND collected_generation<?)) LIMIT 1",
+        channelId,
+        generation
+      )
+      .toArray().length === 0
+  );
 };

@@ -1,15 +1,18 @@
 import { DurableObject } from "cloudflare:workers";
+import { Effect } from "effect";
 import type { ManagedRuntime } from "effect";
 
 import type { WebsiteEnv } from "../../alchemy.run";
 import type { Project, QuestionsRow } from "../features/question-finder/domain";
 import { Discord } from "../features/question-finder/services/discord";
 import { Judge } from "../features/question-finder/services/judge";
-import { migrateProjectStorage } from "../features/question-finder/services/projectStorage";
+import {
+  migrateProjectStorage,
+  ProjectStorage,
+} from "../features/question-finder/services/projectStorage";
 import {
   harvestStoredProject,
   readStoredProject,
-  requestStoredHarvest,
 } from "../features/question-finder/workflows/harvestStoredProject";
 import type { StoredHarvestServices } from "../features/question-finder/workflows/harvestStoredProject";
 import {
@@ -19,6 +22,8 @@ import {
   requestProjectWake,
   saveProjectQuestions,
 } from "../features/question-finder/workflows/projectStorage";
+import { ScheduledHarvest } from "../features/question-finder/workflows/scheduledHarvest";
+import { resolveHarvestProject } from "./projectHarvestConfig";
 import { createProjectHarvestRuntime } from "./projectHarvestRuntime";
 
 export class ProjectHarvest extends DurableObject {
@@ -27,6 +32,7 @@ export class ProjectHarvest extends DurableObject {
     never
   >;
   readonly #mode: "live" | "fixture";
+  readonly #scheduled: ScheduledHarvest;
 
   constructor(ctx: DurableObjectState, env: WebsiteEnv) {
     super(ctx, env);
@@ -38,6 +44,7 @@ export class ProjectHarvest extends DurableObject {
         : Discord.stub,
       env.DISCORD_BOT_TOKEN ? Judge.everythingAnswerable : Judge.stub
     );
+    this.#scheduled = new ScheduledHarvest(this.#runtime, this.#mode);
     ctx.blockConcurrencyWhile(() => {
       migrateProjectStorage(ctx.storage);
 
@@ -54,7 +61,24 @@ export class ProjectHarvest extends DurableObject {
   }
 
   requestHarvest(project: Project) {
-    return this.#runtime.runPromise(requestStoredHarvest(project));
+    return this.#scheduled.request(this.#project(project.id));
+  }
+
+  activate(projectId: string) {
+    return this.#scheduled.activate(this.#project(projectId));
+  }
+
+  #project(projectId: string): Project {
+    const project = resolveHarvestProject(projectId, this.#mode);
+
+    if (
+      project === undefined ||
+      this.ctx.id.name !== `${this.#mode}:${project.id}`
+    ) {
+      throw new Error("Unknown Project storage identity");
+    }
+
+    return project;
   }
 
   read(project: Project) {
@@ -73,8 +97,24 @@ export class ProjectHarvest extends DurableObject {
     return this.#runtime.runPromise(readLastProjectWake);
   }
 
-  alarm(): Promise<void> {
-    return executeProjectWake(this.#runtime);
+  async alarm(): Promise<void> {
+    await executeProjectWake(this.#runtime);
+
+    const schedule = await this.#runtime.runPromise(
+      Effect.flatMap(ProjectStorage, (store) => store.schedule)
+    );
+
+    if (schedule.projectId === null) {
+      return;
+    }
+
+    const project = resolveHarvestProject(schedule.projectId, this.#mode);
+
+    if (project === undefined || schedule.mode !== this.#mode) {
+      return;
+    }
+
+    await this.#scheduled.alarm(project);
   }
 }
 

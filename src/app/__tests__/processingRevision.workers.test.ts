@@ -9,6 +9,7 @@ import { ProjectStorage } from "../../features/question-finder/services/projectS
 import { harvestStoredProject } from "../../features/question-finder/workflows/harvestStoredProject";
 import { projectHarvestStub } from "../projectHarvest";
 import {
+  discoveryOnlyDiscord,
   discordPage,
   sourceMessage,
   textProject,
@@ -72,9 +73,10 @@ describe("processing revisions", () => {
 
     await withHarvestRuntime(
       stub,
-      unavailableDiscord,
+      discoveryOnlyDiscord,
       neverJudge,
       async (runtime) => {
+        await harvestStoredProject(runtime, project, "live");
         const recovered = await harvestStoredProject(runtime, project, "live");
         expect(recovered.harvest.pendingProcessing).toBe(0);
         const store = await runtime.runPromise(ProjectStorage);

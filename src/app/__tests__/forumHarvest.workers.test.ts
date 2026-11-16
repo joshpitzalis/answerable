@@ -4,6 +4,7 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
 import { activationBoundary } from "../../features/question-finder/domain/harvest.values";
+import { Corpus } from "../../features/question-finder/services/corpus";
 import { Discord } from "../../features/question-finder/services/discord";
 import { Judge } from "../../features/question-finder/services/judge";
 import {
@@ -88,6 +89,7 @@ describe("stored forum Harvest", () => {
 
   it("retains discovered work across eviction and retries a missing starter without repeating discovery", async () => {
     const project = textProject("forum-starter-recovery");
+    const time = { now: 2_000_000_000_000 };
     const stub = projectHarvestStub(env.PROJECT_HARVEST, project, "live");
     let missing = true;
     const paths: string[] = [];
@@ -157,10 +159,13 @@ describe("stored forum Harvest", () => {
         const reply = await harvestStoredProject(runtime, project, "live");
         expect(reply.harvest.status).toBe("partial");
         expect(reply.harvest.lastCompleteSuccess).toBeNull();
-      }
+      },
+      Corpus.stub,
+      time
     );
     await evictDurableObject(stub);
     missing = false;
+    time.now += 1000;
     await withHarvestRuntime(
       stub,
       wire,
@@ -178,7 +183,9 @@ describe("stored forum Harvest", () => {
         expect(reply.contributorStats?.topContributors).toMatchObject([
           { name: "Writer", responses: 1 },
         ]);
-      }
+      },
+      Corpus.stub,
+      time
     );
     expect(
       paths.filter((path) => path === "/guilds/700/threads/active")

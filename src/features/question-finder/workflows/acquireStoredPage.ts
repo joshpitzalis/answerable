@@ -16,10 +16,16 @@ export const acquireStoredPage = (project: Project, policyRevision: string) =>
       return;
     }
 
+    const forum = yield* store.forumRequest(turn.channelId, turn.generation);
+
+    const workId =
+      forum !== undefined && "thread" in forum
+        ? forum.thread.id
+        : turn.channelId;
+
     const acquire = Effect.gen(function* () {
       const progress = yield* store.progress(turn.channelId);
       const at = yield* Clock.currentTimeMillis;
-      const forum = yield* store.forumRequest(turn.channelId, turn.generation);
 
       const page = yield* Discord.use((discord) =>
         discord.sourcePage({
@@ -48,6 +54,7 @@ export const acquireStoredPage = (project: Project, policyRevision: string) =>
             })
           );
         }
+
         return;
       }
 
@@ -104,12 +111,19 @@ export const acquireStoredPage = (project: Project, policyRevision: string) =>
       );
 
       if (next === null) {
-        yield* store.fail(turn.channelId, "Discord pagination did not advance");
+        yield* store.retry({
+          kind: "acquisition",
+          workId,
+          channelId: turn.channelId,
+          generation: turn.generation,
+          reason: "Discord pagination did not advance",
+        });
 
         return;
       }
 
       const counts = yield* store.ingestPage({
+        expectedGeneration: turn.generation,
         messages: selected,
         progress: next,
         observedAt: at,
@@ -123,10 +137,24 @@ export const acquireStoredPage = (project: Project, policyRevision: string) =>
 
     yield* acquire.pipe(
       Effect.catchTag("DiscordFailed", () =>
-        store.fail(turn.channelId, "Discord could not be read")
+        store.retry({
+          kind: "acquisition",
+          workId,
+          channelId: turn.channelId,
+          generation: turn.generation,
+          reason: "Discord could not be read",
+        })
       ),
-      Effect.catchTag("DiscordRateLimited", () =>
-        store.fail(turn.channelId, "Discord is rate-limited")
+      Effect.catchTag("DiscordRateLimited", (failure) =>
+        store.retry({
+          kind: "acquisition",
+          workId,
+          channelId: turn.channelId,
+          generation: turn.generation,
+          reason: "Discord is rate-limited",
+          retryAfterMs: failure.retryAfterMs,
+          global: failure.global,
+        })
       )
     );
   });

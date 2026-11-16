@@ -50,6 +50,18 @@ export const projectMigrations = [
     archive_done INTEGER NOT NULL, before_timestamp TEXT, archive_floor TEXT NOT NULL,
     scan_upper TEXT NOT NULL
   );`,
+  `CREATE TABLE harvest_schedule (
+    id INTEGER PRIMARY KEY CHECK(id=1), project_id TEXT, mode TEXT,
+    next_due INTEGER, next_alarm INTEGER, last_manual INTEGER, run_generation INTEGER,
+    global_pause INTEGER NOT NULL DEFAULT 0, retry_cycle_at INTEGER NOT NULL DEFAULT 0
+  );
+  INSERT INTO harvest_schedule (id) VALUES (1);
+  CREATE TABLE harvest_retries (
+    kind TEXT NOT NULL, work_id TEXT NOT NULL, channel_id TEXT NOT NULL,
+    generation INTEGER NOT NULL, attempts INTEGER NOT NULL, next_due INTEGER NOT NULL,
+    exhausted INTEGER NOT NULL, reason TEXT NOT NULL,
+    PRIMARY KEY(kind, work_id)
+  );`,
   `ALTER TABLE discord_threads ADD COLUMN collect_pending INTEGER NOT NULL DEFAULT 1;
   ALTER TABLE discord_threads ADD COLUMN collected_generation INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE discord_threads ADD COLUMN last_selected INTEGER NOT NULL DEFAULT 0;

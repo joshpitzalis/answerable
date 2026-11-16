@@ -6,6 +6,7 @@ import { ingestMessage } from "./content";
 import { readCycle } from "./cycle";
 import { finishDiscovery } from "./forumState";
 import { readProgress } from "./progress";
+import { clearRetry } from "./retries";
 import { invalidateThreadContext } from "./threadContext";
 
 export const saveThreadMessages = (
@@ -22,12 +23,14 @@ export const saveThreadMessages = (
     if (readCycle(sql).generation !== generation) {
       return false;
     }
+
     const progress = readProgress(sql, thread.id);
     const next = advanceMessagePage(progress, messages, at, generation, 50);
 
     if (next === null) {
       return false;
     }
+
     for (const message of messages) {
       if (
         message.channelId !== thread.id ||
@@ -36,12 +39,14 @@ export const saveThreadMessages = (
       ) {
         throw new Error("Thread page belongs to another stream");
       }
+
       if (
         progress.upperBoundary !== null &&
         compareSnowflakes(message.id, progress.upperBoundary) > 0
       ) {
         continue;
       }
+
       // Text-thread starter system messages must not replace the original parent message.
       if (
         message.id === thread.starterId &&
@@ -50,6 +55,7 @@ export const saveThreadMessages = (
       ) {
         continue;
       }
+
       ingestMessage(sql, message, {
         messages,
         progress: next,
@@ -77,6 +83,7 @@ export const saveThreadMessages = (
       );
     }
 
+    clearRetry(sql, "acquisition", thread.id, generation);
     invalidateThreadContext(sql, thread.starterId);
     finishDiscovery(sql, thread.parentChannelId, generation, at);
 

@@ -11,6 +11,7 @@ export const readThreadContext = (sql: SqlStorage, starterId: string) => {
   if (thread === undefined) {
     return null;
   }
+
   const replies = sql
     .exec<{
       id: string;

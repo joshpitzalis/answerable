@@ -15,6 +15,7 @@ import {
 } from "../../features/question-finder/workflows/harvestStoredProject";
 import { projectHarvestStub } from "../projectHarvest";
 import {
+  discoveryOnlyDiscord,
   discordPage,
   sourceMessage,
   textProject,
@@ -36,7 +37,12 @@ describe("processing commit", () => {
         stub,
         discordPage([sourceMessage("101")]),
         Judge.everythingAnswerable,
-        (runtime) => harvestStoredProject(runtime, project, "live")
+        async (runtime) => {
+          await harvestStoredProject(runtime, project, "live");
+          await harvestStoredProject(runtime, project, "live");
+
+          return harvestStoredProject(runtime, project, "live");
+        }
       )
     ).rejects.toBeInstanceOf(ProjectStorageError);
     await evictDurableObject(stub);
@@ -91,7 +97,7 @@ describe("processing commit", () => {
 
     const recovered = await withHarvestRuntime(
       stub,
-      unavailableDiscord,
+      discoveryOnlyDiscord,
       Judge.everythingAnswerable,
       (runtime) => harvestStoredProject(runtime, project, "live")
     );

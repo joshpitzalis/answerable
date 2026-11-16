@@ -1,6 +1,7 @@
 import type { Project } from "../../domain";
 import type { HarvestTurn } from "../../domain/harvest.values";
-import { discoveryComplete } from "./forumState";
+import { acquisitionWork } from "./acquisitionWork";
+import { workEligible } from "./retries";
 
 // oxlint-disable-next-line typescript/consistent-type-definitions -- SQLite rows require an implicit index signature.
 type CycleRow = {
@@ -21,7 +22,8 @@ export const beginCycle = (sql: SqlStorage): void => {
 
 export const claimAcquisition = (
   storage: DurableObjectStorage,
-  project: Project
+  project: Project,
+  at = Date.now()
 ): HarvestTurn | null =>
   storage.transactionSync(() => {
     const cycle = readCycle(storage.sql);
@@ -34,14 +36,18 @@ export const claimAcquisition = (
       const index = (cycle.acquire_turn + offset) % project.channels.length;
       const channel = project.channels[index];
 
-      const progress = storage.sql
-        .exec<{ generation: number }>(
-          "SELECT generation FROM fetch_progress WHERE stream_id=?",
-          channel.id
+      if (
+        !acquisitionWork(storage.sql, [channel.id], cycle.generation).some(
+          (work) =>
+            workEligible(
+              storage.sql,
+              "acquisition",
+              work.work_id,
+              cycle.generation,
+              at
+            )
         )
-        .one();
-
-      if (progress.generation >= cycle.generation && discoveryComplete(storage.sql, channel.id, cycle.generation)) {
+      ) {
         continue;
       }
 
@@ -59,7 +65,8 @@ export const claimAcquisition = (
 
 export const claimProcessing = (
   storage: DurableObjectStorage,
-  project: Project
+  project: Project,
+  at = Date.now()
 ): string | null =>
   storage.transactionSync(() => {
     const cycle = readCycle(storage.sql);
@@ -71,8 +78,11 @@ export const claimProcessing = (
       const pending = storage.sql
         .exec<{ found: number }>(
           `SELECT 1 AS found FROM processing JOIN messages ON messages.id=message_id
-        WHERE parent_channel_id=? AND completed=0 AND deleted_at IS NULL LIMIT 1`,
-          channel.id
+        WHERE parent_channel_id=? AND completed=0 AND deleted_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM harvest_retries WHERE kind='processing' AND work_id=message_id AND generation=? AND (exhausted=1 OR next_due>?)) LIMIT 1`,
+          channel.id,
+          cycle.generation,
+          at
         )
         .toArray();
 

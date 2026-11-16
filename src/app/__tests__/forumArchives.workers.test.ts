@@ -38,6 +38,7 @@ describe("forum archive continuation", () => {
         await runtime.runPromise(requestStoredHarvest(project));
         await harvestStoredProject(runtime, project, "live");
         await harvestStoredProject(runtime, project, "live");
+        await harvestStoredProject(runtime, project, "live");
         const saved = await harvestStoredProject(runtime, project, "live");
         expect(saved.questions).toMatchObject([{ id: "102" }]);
         expect(saved.harvest.status).toBe("current");
@@ -82,6 +83,8 @@ describe("forum archive continuation", () => {
       Discord.layer("invented", wire.fetch),
       Judge.everythingAnswerable,
       async (runtime) => {
+        await harvestStoredProject(runtime, project, "live");
+        await harvestStoredProject(runtime, project, "live");
         await harvestStoredProject(runtime, project, "live");
         await harvestStoredProject(runtime, project, "live");
         const saved = await harvestStoredProject(runtime, project, "live");
@@ -139,14 +142,9 @@ describe("forum archive continuation", () => {
         expect(saved.harvest.lastCompleteSuccess).toBeNull();
 
         const request = await runtime.runPromise(
-          Effect.gen(function* () {
-            const store = yield* ProjectStorage;
-            const turn = yield* store.claimAcquisition(project);
-
-            return turn === null
-              ? null
-              : yield* store.forumRequest(turn.channelId, turn.generation);
-          })
+          Effect.flatMap(ProjectStorage, (store) =>
+            store.forumRequest("800", 1)
+          )
         );
 
         expect(request).toStrictEqual({

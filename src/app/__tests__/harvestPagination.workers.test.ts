@@ -34,8 +34,17 @@ describe("resumable Harvest pages", () => {
       Discord.of({
         messagesSince: () => Effect.die("legacy"),
         hasReplyFrom: () => Effect.die("no replies"),
-        sourcePage: ({ before }) =>
+        sourcePage: ({ before, forum }) =>
           Effect.sync(() => {
+            if (forum !== undefined) {
+              return {
+                threads: [],
+                scope: forum.kind === "archive" ? "archive" : "active",
+                hasMore: false,
+                isForum: false,
+              };
+            }
+
             cursors.push(before);
 
             if (first) {
@@ -59,6 +68,8 @@ describe("resumable Harvest pages", () => {
       wire,
       Judge.everythingAnswerable,
       async (runtime) => {
+        await harvestStoredProject(runtime, project, "live");
+        await harvestStoredProject(runtime, project, "live");
         await harvestStoredProject(runtime, project, "live");
         await runtime.runPromise(requestStoredHarvest(project));
         await harvestStoredProject(runtime, project, "live");
@@ -119,6 +130,15 @@ describe("resumable Harvest pages", () => {
         hasReplyFrom: () => Effect.die("no threads"),
         sourcePage: (request) =>
           Effect.sync(() => {
+            if (request.forum !== undefined) {
+              return {
+                threads: [],
+                scope: request.forum.kind === "archive" ? "archive" : "active",
+                hasMore: false,
+                isForum: false,
+              };
+            }
+
             requests.push(request.before);
 
             return messages
@@ -138,6 +158,8 @@ describe("resumable Harvest pages", () => {
       wire,
       Judge.everythingAnswerable,
       async (runtime) => {
+        await harvestStoredProject(runtime, project, "live");
+        await harvestStoredProject(runtime, project, "live");
         await harvestStoredProject(runtime, project, "live");
         messages = Array.from({ length: 152 }, (_, index) =>
           sourceMessage(String(101 + index), "saved content")

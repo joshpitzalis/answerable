@@ -9,7 +9,10 @@ import { API } from "../lib/constants";
 
 const RATE_LIMITED = 429;
 
-const RateLimitBody = Schema.Struct({ retry_after: Schema.Number });
+const RateLimitBody = Schema.Struct({
+  retry_after: Schema.Number,
+  global: Schema.optional(Schema.Boolean),
+});
 
 /**
  * Discord's delay on a 429, in milliseconds: the JSON body's `retry_after`
@@ -18,11 +21,19 @@ const RateLimitBody = Schema.Struct({ retry_after: Schema.Number });
 const retryAfterMs = (response: Response) =>
   Effect.tryPromise(() => response.json()).pipe(
     Effect.flatMap(Schema.decodeUnknownEffect(RateLimitBody)),
-    Effect.map((body) => body.retry_after),
-    Effect.orElseSucceed(() => Number(response.headers.get("Retry-After"))),
-    Effect.map((seconds) =>
-      Number.isFinite(seconds) && seconds > 0
-        ? Option.some(seconds * 1000)
+    Effect.orElseSucceed(() => ({
+      retry_after: Number(response.headers.get("Retry-After")),
+      global: false,
+    })),
+    Effect.map((body) =>
+      Number.isFinite(body.retry_after) && body.retry_after > 0
+        ? Option.some({
+            retryAfterMs: body.retry_after * 1000,
+            global:
+              body.global === true ||
+              response.headers.get("X-RateLimit-Global") === "true" ||
+              response.headers.get("X-RateLimit-Scope") === "global",
+          })
         : Option.none()
     )
   );
@@ -62,8 +73,7 @@ export const discordGet = Effect.fn("Discord.get")(function* (
                   reason: `GET ${path} returned ${response.status}`,
                 })
               ),
-            onSome: (ms) =>
-              Effect.fail(new DiscordRateLimited({ retryAfterMs: ms })),
+            onSome: (limit) => Effect.fail(new DiscordRateLimited(limit)),
           });
         }
 

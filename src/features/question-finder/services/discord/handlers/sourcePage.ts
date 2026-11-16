@@ -2,6 +2,7 @@ import { Effect, Schema } from "effect";
 
 import type {
   ForumRequest,
+  DiscordThread,
   SourcePage,
   ThreadPage,
 } from "../../../domain/thread.values";
@@ -35,6 +36,9 @@ const decodeThreads = (scope: "active" | "archive") =>
     has_more:
       scope === "archive" ? Schema.Boolean : Schema.optional(Schema.Boolean),
   });
+
+const starterChannel = (thread: DiscordThread) =>
+  thread.isPost === false ? thread.parentChannelId : thread.id;
 
 export const sourcePage = Effect.fn("Discord.sourcePage")(function* (
   request: SourcePageRequest,
@@ -74,7 +78,7 @@ export const sourcePage = Effect.fn("Discord.sourcePage")(function* (
 
   if (request.forum?.kind === "starter") {
     const { thread } = request.forum;
-    const channelId = thread.isPost === false ? request.parentChannelId : thread.id;
+    const channelId = starterChannel(thread);
 
     const body = yield* discordGet(
       `/channels/${channelId}/messages/${thread.starterId}`,

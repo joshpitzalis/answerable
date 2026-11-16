@@ -43,7 +43,12 @@ describe("reprocess stored Project content", () => {
         sourceMessage("102", "Hello"),
       ]),
       Judge.stub,
-      (runtime) => harvestStoredProject(runtime, project, "fixture"),
+      async (runtime) => {
+        await harvestStoredProject(runtime, project, "fixture");
+        await harvestStoredProject(runtime, project, "fixture");
+
+        return harvestStoredProject(runtime, project, "fixture");
+      },
       corpus
     );
 
@@ -132,6 +137,7 @@ describe("reprocess stored Project content", () => {
 
   it("retains the last successful result when changed policy fails, then retries saved content", async () => {
     const project = textProject("policy-retry");
+    const time = { now: 2_000_000_000_000 };
     const stub = projectHarvestStub(env.PROJECT_HARVEST, project, "fixture");
     let title = "Whales";
 
@@ -147,7 +153,12 @@ describe("reprocess stored Project content", () => {
       stub,
       discordPage([sourceMessage("101", "Can whales jump?")]),
       Judge.stub,
-      (runtime) => harvestStoredProject(runtime, project, "fixture"),
+      async (runtime) => {
+        await harvestStoredProject(runtime, project, "fixture");
+        await harvestStoredProject(runtime, project, "fixture");
+
+        return harvestStoredProject(runtime, project, "fixture");
+      },
       corpus
     );
 
@@ -166,7 +177,8 @@ describe("reprocess stored Project content", () => {
       unavailableDiscord,
       failingJudge,
       (runtime) => harvestStoredProject(runtime, project, "fixture"),
-      corpus
+      corpus,
+      time
     );
 
     expect(failed.questions).toStrictEqual(first.questions);
@@ -177,12 +189,15 @@ describe("reprocess stored Project content", () => {
     });
     await evictDurableObject(stub);
 
+    time.now += 1000;
+
     const recovered = await withHarvestRuntime(
       stub,
       unavailableDiscord,
       Judge.stub,
       (runtime) => harvestStoredProject(runtime, project, "fixture"),
-      corpus
+      corpus,
+      time
     );
 
     expect(recovered.questions).toStrictEqual([]);

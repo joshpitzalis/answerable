@@ -11,10 +11,10 @@ import { ProjectStorage } from "../../features/question-finder/services/projectS
 import { harvestStoredProject } from "../../features/question-finder/workflows/harvestStoredProject";
 import { projectHarvestStub } from "../projectHarvest";
 import {
+  discoveryOnlyDiscord,
   discordPage,
   sourceMessage,
   textProject,
-  unavailableDiscord,
   withHarvestRuntime,
 } from "./harvest.test-utils";
 
@@ -128,7 +128,7 @@ describe("bounded Harvest deadlines", () => {
     }
   );
 
-  it("bounds concurrent judgments, aborts them, and resumes twenty saved candidates without Discord", async () => {
+  it("bounds concurrent judgments, aborts them, and resumes twenty saved candidates without redownloading", async () => {
     const project = textProject("deadline-judge");
     const stub = projectHarvestStub(env.PROJECT_HARVEST, project, "live");
     const fourStarted = Effect.runSync(Deferred.make<undefined>());
@@ -190,7 +190,7 @@ describe("bounded Harvest deadlines", () => {
 
     const recovered = await withHarvestRuntime(
       stub,
-      unavailableDiscord,
+      discoveryOnlyDiscord,
       Judge.everythingAnswerable,
       (runtime) => harvestStoredProject(runtime, project, "live")
     );

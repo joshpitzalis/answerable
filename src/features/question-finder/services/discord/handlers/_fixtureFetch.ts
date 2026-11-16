@@ -13,6 +13,32 @@ import { PROJECTS } from "../../../lib/projects.config.example";
 export const fixtureFetch: typeof globalThis.fetch = (input) => {
   const url = new URL(String(input));
 
+  if (url.pathname.endsWith("/threads/active")) {
+    const serverId = url.pathname.split("/").at(-3);
+    const project = PROJECTS.find((item) => item.serverId === serverId);
+
+    const threads = FIXTURE.filter(
+      (message) =>
+        message.thread !== undefined &&
+        project?.channels.some((channel) => channel.id === message.channel_id)
+    ).map((message) => ({
+      id: message.thread?.id,
+      parent_id: message.channel_id,
+      name: message.content.slice(0, 100),
+      type: 11,
+      thread_metadata: {
+        archived: false,
+        archive_timestamp: message.timestamp,
+      },
+    }));
+
+    return Promise.resolve(Response.json({ threads, has_more: false }));
+  }
+
+  if (url.pathname.endsWith("/threads/archived/public")) {
+    return Promise.resolve(Response.json({ threads: [], has_more: false }));
+  }
+
   if (url.pathname.endsWith("/applications/@me")) {
     return Promise.resolve(
       Response.json({ bot: { id: "830000000000000001" }, flags: 262_144 })
@@ -63,7 +89,17 @@ export const fixtureFetch: typeof globalThis.fetch = (input) => {
   const starters = FIXTURE.filter((message) => message.channel_id === id);
 
   if (starters.length === 0) {
-    return Promise.resolve(Response.json(replies(id)));
+    return Promise.resolve(
+      Response.json(
+        replies(id)
+          .filter(
+            (message) =>
+              (before === null || compareSnowflakes(message.id, before) < 0) &&
+              (after === null || compareSnowflakes(message.id, after) > 0)
+          )
+          .slice(0, limit)
+      )
+    );
   }
 
   // Already newest-first, same as the API.
@@ -87,7 +123,7 @@ const replies = (threadId: string) => {
     ? []
     : [
         {
-          id: (BigInt(threadId) + 1n).toString(),
+          id: (BigInt(threadId) * 1000n + 1n).toString(),
           content: "Covered in an earlier post.",
           timestamp: "2026-08-10T00:00:00.000+00:00",
           channel_id: threadId,
