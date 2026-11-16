@@ -1,17 +1,16 @@
 import { Clock, Effect } from "effect";
 import type { ManagedRuntime } from "effect";
-import { createActor, setup, toPromise } from "xstate";
+import { createActor, setup, toPromise, types } from "xstate";
 
 import type { Project } from "../domain";
-import { processingPolicy } from "../domain/harvest.values";
-import type { Corpus } from "../services/corpus";
+import type { Corpus, Post } from "../services/corpus";
 import type { Discord } from "../services/discord";
 import type { Judge } from "../services/judge";
 import { ProjectStorage } from "../services/projectStorage";
 import { acquireStoredPage } from "./acquireStoredPage";
 import { fromEffect } from "./fromEffect";
 import type { HarvestClock } from "./harvestQuestions";
-import { processCandidate } from "./processStoredCandidates";
+import { prepareProcessing, processCandidate } from "./processStoredCandidates";
 
 export type StoredHarvestServices = ProjectStorage | Discord | Judge | Corpus;
 
@@ -32,29 +31,38 @@ export const harvestStoredProject = async (
   mode: "live" | "fixture",
   clock?: HarvestClock
 ) => {
-  const saved = await runtime.runPromise(readStoredProject(project));
-
-  if (
-    saved.harvest.status === "current" &&
-    saved.harvest.lastCompleteSuccess !== null
-  ) {
-    return saved;
-  }
-
-  if (saved.harvest.activatedAt === null) {
-    await runtime.runPromise(requestStoredHarvest(project));
-  }
-
   const machine = setup({
+    schemas: {
+      context: types<{ posts: readonly Post[]; policyRevision: string }>(),
+    },
     actors: {
-      acquire: fromEffect(runtime, () =>
+      prepare: fromEffect(runtime, () =>
+        Effect.gen(function* () {
+          const initial = yield* readStoredProject(project);
+
+          if (initial.harvest.activatedAt === null) {
+            yield* requestStoredHarvest(project);
+          }
+
+          const prepared = yield* prepareProcessing(project, mode);
+          const saved = yield* readStoredProject(project);
+
+          return {
+            ...prepared,
+            current:
+              saved.harvest.status === "current" &&
+              saved.harvest.lastCompleteSuccess !== null,
+          };
+        })
+      ),
+      acquire: fromEffect(runtime, (policyRevision: string) =>
         Effect.gen(function* () {
           const at = yield* Clock.currentTimeMillis;
           yield* ProjectStorage.use((store) => store.activate(project, at));
-          yield* acquireStoredPage(project, processingPolicy(mode));
+          yield* acquireStoredPage(project, policyRevision);
         })
       ),
-      process: fromEffect(runtime, () =>
+      process: fromEffect(runtime, (posts: readonly Post[]) =>
         Effect.gen(function* () {
           const store = yield* ProjectStorage;
           const channelId = yield* store.claimProcessing(project);
@@ -63,10 +71,10 @@ export const harvestStoredProject = async (
             return;
           }
 
-          const candidates = yield* store.pending([channelId]);
+          const candidates = yield* store.pending([channelId], 20);
           yield* Effect.forEach(
-            candidates.slice(0, 20),
-            (candidate) => processCandidate(project, candidate),
+            candidates,
+            (candidate) => processCandidate(project, candidate, posts),
             { concurrency: 4, discard: true }
           );
         })
@@ -79,24 +87,41 @@ export const harvestStoredProject = async (
       ),
     },
   }).createMachine({
+    id: "storedHarvest",
+    context: { posts: [], policyRevision: "" },
     initial: "working",
     states: {
       working: {
-        initial: "acquiring",
+        initial: "preparing",
         timeout: 20_000,
-        onTimeout: () => ({ target: "finishing" }),
+        onTimeout: () => ({ target: "#storedHarvest.done" }),
         states: {
+          preparing: {
+            invoke: {
+              src: "prepare",
+              input: undefined,
+              onDone: ({ event }) => ({
+                target: event.output.current
+                  ? "#storedHarvest.done"
+                  : "acquiring",
+                context: {
+                  posts: event.output.posts,
+                  policyRevision: event.output.policyRevision,
+                },
+              }),
+            },
+          },
           acquiring: {
             invoke: {
               src: "acquire",
-              input: undefined,
+              input: ({ context }) => context.policyRevision,
               onDone: () => ({ target: "processing" }),
             },
           },
           processing: {
             invoke: {
               src: "process",
-              input: undefined,
+              input: ({ context }) => context.posts,
               onDone: () => ({ target: "done" }),
             },
           },

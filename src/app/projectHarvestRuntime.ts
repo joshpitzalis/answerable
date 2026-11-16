@@ -8,8 +8,9 @@ import { ProjectStorage } from "../features/question-finder/services/projectStor
 export const createProjectHarvestRuntime = (
   storage: DurableObjectStorage,
   discord: Layer.Layer<Discord>,
-  judge: Layer.Layer<Judge>
+  judge: Layer.Layer<Judge>,
+  corpus: Layer.Layer<Corpus> = Corpus.stub
 ) =>
   ManagedRuntime.make(
-    Layer.mergeAll(ProjectStorage.layer(storage), discord, judge, Corpus.stub)
+    Layer.mergeAll(ProjectStorage.layer(storage), discord, judge, corpus)
   );

@@ -83,6 +83,7 @@ describe("resumable Harvest pages", () => {
         const progress = await runtime.runPromise(
           ProjectStorage.use((store) => store.progress("800"))
         );
+
         expect(progress).toMatchObject({
           before: "203",
           upperBoundary: "252",

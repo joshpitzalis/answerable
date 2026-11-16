@@ -28,6 +28,7 @@ export interface StoredMessage extends SourceMessage {
 export interface ProcessingCandidate {
   readonly message: StoredMessage;
   readonly policyRevision: string;
+  readonly contextRevision: string;
 }
 
 export interface FetchProgress {
@@ -79,7 +80,10 @@ export const compareSnowflakes = (left: string, right: string): number =>
 export const activationBoundary = (at: number): string =>
   (BigInt(Math.max(0, at - 1_420_070_400_000)) * 4_194_304n).toString();
 
-export const processingPolicy = (mode: "live" | "fixture"): string =>
+export const processingPolicy = (
+  mode: "live" | "fixture",
+  evidenceRevision = "v1"
+): string =>
   mode === "live"
     ? "question-mark-v1:accept-all-v1:replies-off"
-    : "question-mark-v1:fixture-evidence-v1:replies-pending";
+    : `question-mark-v1:fixture-judge-v1:evidence-${evidenceRevision}:replies-pending`;

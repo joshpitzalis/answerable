@@ -1,15 +1,12 @@
-import type { QuestionsRow } from "../../domain";
 import type {
   IngestionCounts,
   PageIngestion,
-  ProcessingCandidate,
   SourceMessage,
   StoredMessage,
 } from "../../domain/harvest.values";
-import { saveQuestions } from "./questions";
 
 // oxlint-disable-next-line typescript/consistent-type-definitions -- SQLite rows require an implicit index signature.
-type MessageRow = {
+export type MessageRow = {
   id: string;
   channel_id: string;
   parent_channel_id: string;
@@ -31,7 +28,7 @@ type MessageRow = {
   deleted_at: number | null;
 };
 
-const fromRow = (row: MessageRow): StoredMessage => ({
+export const messageFromRow = (row: MessageRow): StoredMessage => ({
   id: row.id,
   channelId: row.channel_id,
   parentChannelId: row.parent_channel_id,
@@ -57,7 +54,7 @@ export const readMessages = (sql: SqlStorage): StoredMessage[] =>
   sql
     .exec<MessageRow>("SELECT * FROM messages ORDER BY length(id), id")
     .toArray()
-    .map(fromRow);
+    .map(messageFromRow);
 
 const fingerprint = (message: SourceMessage): string =>
   JSON.stringify([
@@ -184,56 +181,4 @@ export const ingestPage = (
     );
 
     return counts;
-  });
-
-export const pendingCandidates = (
-  sql: SqlStorage,
-  channelIds: readonly string[]
-): ProcessingCandidate[] =>
-  sql
-    .exec<
-      MessageRow & { policy_revision: string }
-    >(`SELECT messages.*, processing.policy_revision FROM messages
-    JOIN processing ON message_id = id WHERE completed = 0 AND deleted_at IS NULL
-    ORDER BY length(id), id`)
-    .toArray()
-    .filter((row) => channelIds.includes(row.parent_channel_id))
-    .map((row) => ({
-      message: fromRow(row),
-      policyRevision: row.policy_revision,
-    }));
-
-export const completeProcessing = (
-  storage: DurableObjectStorage,
-  candidate: ProcessingCandidate,
-  row: QuestionsRow | null
-): boolean =>
-  storage.transactionSync(() => {
-    const changed = storage.sql
-      .exec(
-        `UPDATE processing SET completed=1, failure=NULL
-      WHERE message_id=? AND source_revision=? AND policy_revision=?
-      AND EXISTS (SELECT 1 FROM messages WHERE id=message_id AND source_revision=? AND deleted_at IS NULL)
-      RETURNING message_id`,
-        candidate.message.id,
-        candidate.message.sourceRevision,
-        candidate.policyRevision,
-        candidate.message.sourceRevision
-      )
-      .toArray();
-
-    if (changed.length === 0) {
-      return false;
-    }
-
-    if (row === null) {
-      storage.sql.exec(
-        "DELETE FROM questions WHERE id = ?",
-        candidate.message.id
-      );
-    } else {
-      saveQuestions(storage.sql, [row]);
-    }
-
-    return true;
   });

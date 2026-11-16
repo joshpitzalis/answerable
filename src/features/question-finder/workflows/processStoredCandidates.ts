@@ -2,14 +2,31 @@ import { Effect } from "effect";
 
 import type { Project } from "../domain";
 import { looksLikeAQuestion, toRow } from "../domain";
+import { processingPolicy } from "../domain/harvest.values";
 import type { ProcessingCandidate } from "../domain/harvest.values";
 import { Corpus } from "../services/corpus";
+import type { Post } from "../services/corpus";
 import { Judge } from "../services/judge";
 import { ProjectStorage } from "../services/projectStorage";
 
+export const prepareProcessing = (project: Project, mode: "live" | "fixture") =>
+  Effect.gen(function* () {
+    const { posts, revision } = yield* Corpus.snapshot(project.id);
+    const policyRevision = processingPolicy(mode, revision);
+    yield* ProjectStorage.use((store) =>
+      store.reprocess(
+        project.channels.map((channel) => channel.id),
+        policyRevision
+      )
+    );
+
+    return { posts, policyRevision };
+  });
+
 export const processCandidate = (
   project: Project,
-  candidate: ProcessingCandidate
+  candidate: ProcessingCandidate,
+  posts: readonly Post[]
 ) =>
   Effect.gen(function* () {
     const store = yield* ProjectStorage;
@@ -32,8 +49,6 @@ export const processCandidate = (
 
       return;
     }
-
-    const posts = yield* Corpus.use((corpus) => corpus.all(project.id));
 
     const verdict = yield* Judge.use((judge) =>
       judge.answerable(message.content, posts)

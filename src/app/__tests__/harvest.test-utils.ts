@@ -4,6 +4,7 @@ import type { ManagedRuntime } from "effect";
 
 import type { Project } from "../../features/question-finder/domain";
 import type { SourceMessage } from "../../features/question-finder/domain/harvest.values";
+import { Corpus } from "../../features/question-finder/services/corpus";
 import { Discord } from "../../features/question-finder/services/discord";
 import type { Judge } from "../../features/question-finder/services/judge";
 import type { StoredHarvestServices } from "../../features/question-finder/workflows/harvestStoredProject";
@@ -67,10 +68,16 @@ export const withHarvestRuntime = <A>(
   judge: Layer.Layer<Judge>,
   use: (
     runtime: ManagedRuntime.ManagedRuntime<StoredHarvestServices, never>
-  ) => Promise<A>
+  ) => Promise<A>,
+  corpus: Layer.Layer<Corpus> = Corpus.stub
 ) =>
   runInDurableObject(stub, async (_instance, state) => {
-    const runtime = createProjectHarvestRuntime(state.storage, discord, judge);
+    const runtime = createProjectHarvestRuntime(
+      state.storage,
+      discord,
+      judge,
+      corpus
+    );
 
     try {
       return await use(runtime);

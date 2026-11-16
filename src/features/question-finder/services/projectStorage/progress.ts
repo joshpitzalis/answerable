@@ -7,6 +7,7 @@ import type {
 } from "../../domain/harvest.values";
 import { readMessages } from "./content";
 import { readCycle } from "./cycle";
+import { countPendingCandidates } from "./processing";
 import { readQuestions } from "./questions";
 
 // oxlint-disable-next-line typescript/consistent-type-definitions -- SQLite rows require an implicit index signature.
@@ -171,16 +172,7 @@ export const readSavedProject = (
       : [{ name: channel.name, reason: row.failure }];
   });
 
-  const pendingProcessing =
-    ids.length === 0
-      ? 0
-      : sql
-          .exec<{ count: number }>(
-            `SELECT COUNT(*) AS count FROM processing JOIN messages ON messages.id=message_id WHERE completed=0 AND deleted_at IS NULL AND parent_channel_id IN (${ids.map(() => "?").join(",")})`,
-            ...ids
-          )
-          .one().count;
-
+  const pendingProcessing = countPendingCandidates(sql, ids);
   const cycle = readCycle(sql);
 
   const incomplete =

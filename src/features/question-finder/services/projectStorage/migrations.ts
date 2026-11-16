@@ -31,6 +31,7 @@ export const projectMigrations = [
   ALTER TABLE harvest_state ADD COLUMN activated_at INTEGER;
   ALTER TABLE harvest_state ADD COLUMN last_attempt INTEGER;
   ALTER TABLE harvest_state ADD COLUMN last_complete_success INTEGER;`,
+  "ALTER TABLE processing ADD COLUMN context_revision TEXT NOT NULL DEFAULT '';",
   `ALTER TABLE fetch_progress ADD COLUMN generation INTEGER NOT NULL DEFAULT 0;
   CREATE TABLE harvest_cycle (
     id INTEGER PRIMARY KEY CHECK (id=1), generation INTEGER NOT NULL DEFAULT 0,
