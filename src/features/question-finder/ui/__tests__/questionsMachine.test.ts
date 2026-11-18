@@ -2,7 +2,28 @@ import { describe, expect, it } from "vitest";
 import { createActor, waitFor } from "xstate";
 
 import type { QuestionsReply, QuestionsRow } from "../../domain";
-import { createQuestionsMachine } from "../questionsMachine";
+import { createQuestionsMachine as createStoredQuestionsMachine } from "../questionsMachine";
+
+const createQuestionsMachine = (load: () => Promise<QuestionsReply>) => {
+  const read = async () => ({
+    ...(await load()),
+    harvest: {
+      status: "current" as const,
+      activatedAt: 1,
+      lastAttempt: 1,
+      lastCompleteSuccess: 1,
+      initialCoverage: "latest-50" as const,
+      pendingProcessing: 0,
+      nextEligibleAt: null,
+    },
+  });
+
+  return createStoredQuestionsMachine({
+    load: read,
+    activate: read,
+    refresh: read,
+  });
+};
 
 const row: QuestionsRow = {
   id: "1",

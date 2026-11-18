@@ -1,21 +1,42 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import type { QuestionsReply } from "../../domain";
+import type { StoredQuestionsReply } from "../../domain/harvest.values";
 import { createQuestionsMachine } from "../questionsMachine";
 import { QuestionsView } from "../QuestionsView";
 
-const reply = (overrides: Partial<QuestionsReply>): QuestionsReply => ({
+const reply = (
+  overrides: Partial<StoredQuestionsReply>
+): StoredQuestionsReply => ({
+  harvest: {
+    status: "current",
+    activatedAt: 1,
+    lastAttempt: 1,
+    lastCompleteSuccess: 1,
+    initialCoverage: "latest-50",
+    pendingProcessing: 0,
+    nextEligibleAt: null,
+  },
   contributorStats: null,
   failedChannels: [],
   questions: [],
   ...overrides,
 });
 
-const viewOf = (loaded: QuestionsReply) => (
+const viewOf = (loaded: StoredQuestionsReply) => (
   <QuestionsView
-    machine={createQuestionsMachine(() => Promise.resolve(loaded))}
+    machine={createQuestionsMachine({
+      load: () => Promise.resolve(loaded),
+      activate: () => Promise.resolve(loaded),
+      refresh: () => Promise.resolve(loaded),
+    })}
     title="XState Questions"
   />
 );
@@ -95,5 +116,49 @@ describe("the questions headline", () => {
     expect(
       screen.queryByRole("group", { name: "Top contributors" })
     ).toBeNull();
+  });
+
+  it("distinguishes initial collection from a completed empty collection", async () => {
+    const initial = reply({
+      harvest: {
+        ...reply({}).harvest,
+        status: "working",
+        lastCompleteSuccess: null,
+      },
+    });
+
+    const { unmount } = render(viewOf(initial));
+    await screen.findByText("Collecting questions");
+    expect(
+      screen.getByText("First collection has not completed yet.")
+    ).toBeTruthy();
+    unmount();
+    render(viewOf(reply({})));
+    await screen.findByText("Up to date");
+    expect(
+      screen.queryByText("First collection has not completed yet.")
+    ).toBeNull();
+    expect(screen.getByText(/Last complete collection:/u)).toBeTruthy();
+  });
+
+  it("keeps the existing table mounted when Refresh fails", async () => {
+    const loaded = reply({});
+    render(
+      <QuestionsView
+        title="XState Questions"
+        machine={createQuestionsMachine({
+          load: () => Promise.resolve(loaded),
+          activate: () => Promise.resolve(loaded),
+          refresh: () => Promise.reject(new Error("Connection interrupted")),
+        })}
+      />
+    );
+    await screen.findByRole("heading", { name: "XState Questions" });
+    const search = screen.getByRole("combobox", { name: "Search" });
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await screen.findByText("Collection status could not be updated");
+    expect(screen.getByRole("combobox", { name: "Search" })).toBe(search);
+    expect(screen.getByText("Connection interrupted")).toBeTruthy();
+    expect(screen.getByText(/Last complete collection:/u)).toBeTruthy();
   });
 });
