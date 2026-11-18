@@ -1,34 +1,25 @@
 import { Effect, Schema } from "effect";
 
+import type { ReconciliationRequest } from "../../../domain/reconciliation.values";
 import type {
   ForumRequest,
-  DiscordThread,
   SourcePage,
   ThreadPage,
 } from "../../../domain/thread.values";
 import { DiscordFailed } from "../lib/errors";
 import type { DiscordRateLimited } from "../lib/errors";
 import { discordGet } from "./discordGet";
-import { RawContent, readMessagePage, toSourceMessage } from "./messagePage";
+import { readMessagePage } from "./messagePage";
 import type { MessagePageRequest } from "./messagePage";
 import { requireMessageAccess } from "./readAccess";
+import { readStarter } from "./readStarter";
+import { reconcileSource } from "./reconcileSource";
+import { Thread } from "./threadSchema";
 
 export interface SourcePageRequest extends MessagePageRequest {
   readonly forum?: ForumRequest;
+  readonly reconciliation?: ReconciliationRequest;
 }
-
-const Thread = Schema.Struct({
-  id: Schema.String.check(Schema.isPattern(/^[1-9][0-9]*$/u)),
-  parent_id: Schema.String,
-  type: Schema.Number,
-  name: Schema.String,
-  thread_metadata: Schema.Struct({
-    archived: Schema.Boolean,
-    archive_timestamp: Schema.String.check(
-      Schema.makeFilter((value) => Number.isFinite(Date.parse(value)))
-    ),
-  }),
-});
 
 const decodeThreads = (scope: "active" | "archive") =>
   Schema.Struct({
@@ -36,9 +27,6 @@ const decodeThreads = (scope: "active" | "archive") =>
     has_more:
       scope === "archive" ? Schema.Boolean : Schema.optional(Schema.Boolean),
   });
-
-const starterChannel = (thread: DiscordThread) =>
-  thread.isPost === false ? thread.parentChannelId : thread.id;
 
 export const sourcePage = Effect.fn("Discord.sourcePage")(function* (
   request: SourcePageRequest,
@@ -51,6 +39,18 @@ export const sourcePage = Effect.fn("Discord.sourcePage")(function* (
     token,
     fetch
   );
+
+  if (request.reconciliation !== undefined) {
+    return {
+      reconciliation: yield* reconcileSource(
+        request,
+        request.reconciliation,
+        type,
+        token,
+        fetch
+      ),
+    };
+  }
 
   if (request.forum?.kind === "messages") {
     const { thread, before } = request.forum;
@@ -77,40 +77,7 @@ export const sourcePage = Effect.fn("Discord.sourcePage")(function* (
   }
 
   if (request.forum?.kind === "starter") {
-    const { thread } = request.forum;
-    const channelId = starterChannel(thread);
-
-    const body = yield* discordGet(
-      `/channels/${channelId}/messages/${thread.starterId}`,
-      token,
-      fetch
-    );
-
-    const raw = yield* Schema.decodeUnknownEffect(RawContent)(body).pipe(
-      Effect.mapError(
-        () => new DiscordFailed({ reason: "Malformed Discord forum starter" })
-      )
-    );
-
-    if (
-      raw.id !== thread.starterId ||
-      raw.channel_id !== channelId ||
-      thread.parentChannelId !== request.parentChannelId
-    ) {
-      return yield* Effect.fail(
-        new DiscordFailed({
-          reason: "Discord returned another thread's starter",
-        })
-      );
-    }
-
-    return {
-      starter: {
-        ...toSourceMessage(raw, { ...request, channelId }),
-        threadId: thread.id,
-        isPost: thread.isPost !== false,
-      },
-    };
+    return yield* readStarter(request, request.forum.thread, token, fetch);
   }
 
   const scope = request.forum?.kind === "archive" ? "archive" : "active";

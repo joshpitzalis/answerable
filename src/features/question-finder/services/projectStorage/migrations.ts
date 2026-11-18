@@ -68,6 +68,16 @@ export const projectMigrations = [
   ALTER TABLE discord_threads ADD COLUMN is_post INTEGER NOT NULL DEFAULT 1;
   INSERT OR IGNORE INTO fetch_progress (stream_id,parent_channel_id,completed_boundary,seeded)
     SELECT id,parent_channel_id,'0',1 FROM discord_threads;`,
+  `ALTER TABLE fetch_progress ADD COLUMN is_forum INTEGER;
+  ALTER TABLE harvest_cycle ADD COLUMN reconcile_turn INTEGER NOT NULL DEFAULT 0;
+  CREATE TABLE reconciliation_schedule (
+    id INTEGER PRIMARY KEY CHECK(id=1), next_due INTEGER
+  );
+  INSERT INTO reconciliation_schedule (id) VALUES (1);
+  CREATE TABLE reconciliation_work (
+    work_id TEXT PRIMARY KEY, channel_id TEXT NOT NULL, stream_id TEXT NOT NULL,
+    kind TEXT NOT NULL, message_id TEXT, last_selected INTEGER NOT NULL DEFAULT 0
+  );`,
 ];
 
 export const migrateProjectStorage = (

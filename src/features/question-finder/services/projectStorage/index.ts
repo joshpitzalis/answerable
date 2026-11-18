@@ -12,6 +12,10 @@ import type {
   SourceMessage,
 } from "../../domain/harvest.values";
 import type {
+  ReconciliationWork,
+  ReconciliationResult,
+} from "../../domain/reconciliation.values";
+import type {
   HarvestRetry,
   HarvestSchedule,
 } from "../../domain/schedule.values";
@@ -37,6 +41,7 @@ import {
   recordFailure,
 } from "./progress";
 import { readQuestions, saveQuestions } from "./questions";
+import { saveReconciliation } from "./reconciliation";
 import { recordRetry } from "./retries";
 import {
   completeScheduledBatch,
@@ -62,6 +67,13 @@ const attempt = <A>(operation: string, body: () => A) =>
 export class ProjectStorage extends Context.Service<
   ProjectStorage,
   {
+    readonly saveReconciliation: (
+      work: ReconciliationWork,
+      generation: number,
+      result: ReconciliationResult,
+      policyRevision: string,
+      at: number
+    ) => Effect.Effect<void, ProjectStorageError>;
     readonly saveThreadMessages: (
       thread: DiscordThread,
       generation: number,
@@ -164,6 +176,17 @@ export class ProjectStorage extends Context.Service<
     Layer.succeed(
       ProjectStorage,
       ProjectStorage.of({
+        saveReconciliation: (work, generation, result, policyRevision, at) =>
+          attempt("saveReconciliation", () =>
+            saveReconciliation(
+              storage,
+              work,
+              generation,
+              result,
+              policyRevision,
+              at
+            )
+          ),
         saveThreadMessages: (
           thread,
           generation,

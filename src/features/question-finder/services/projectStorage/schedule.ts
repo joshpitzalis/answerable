@@ -7,6 +7,7 @@ import {
 import type { HarvestSchedule } from "../../domain/schedule.values";
 import { beginCycle, readCycle } from "./cycle";
 import { activateProject, readSavedProject } from "./progress";
+import { enqueueReconciliation, reconciliationDue } from "./reconciliationWork";
 import { nextWork } from "./retries";
 
 export const readSchedule = (sql: SqlStorage): HarvestSchedule => {
@@ -47,6 +48,7 @@ export const requestScheduledHarvest = (
 
     if (schedule.projectId === null) {
       activateProject(storage, project, at);
+      enqueueReconciliation(storage.sql, project, at);
       beginCycle(storage.sql);
       storage.sql.exec(
         "UPDATE harvest_schedule SET project_id=?, mode=?, next_due=?, last_manual=? WHERE id=1",
@@ -106,7 +108,10 @@ export const completeScheduledBatch = (
 
   const due =
     saved.harvest.status === "current"
-      ? (saved.harvest.lastCompleteSuccess ?? at) + HARVEST_INTERVAL
+      ? Math.min(
+          (saved.harvest.lastCompleteSuccess ?? at) + HARVEST_INTERVAL,
+          reconciliationDue(sql) ?? Infinity
+        )
       : Math.max(
           at + CONTINUATION_DELAY,
           exhausted ? work.exhaustedAt : work.next
@@ -142,6 +147,7 @@ export const startScheduledBatch = (
     }
 
     activateProject(storage, project, at);
+    enqueueReconciliation(storage.sql, project, at);
     beginCycle(storage.sql);
     storage.sql.exec(
       "UPDATE harvest_schedule SET run_generation=? WHERE id=1",

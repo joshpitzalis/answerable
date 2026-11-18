@@ -61,6 +61,18 @@ export const discordGet = Effect.fn("Discord.get")(function* (
         });
 
         if (!response.ok) {
+          const errorBody =
+            response.status === 404
+              ? yield* Effect.tryPromise(() => response.json()).pipe(
+                  Effect.flatMap(
+                    Schema.decodeUnknownEffect(
+                      Schema.Struct({ code: Schema.Number })
+                    )
+                  ),
+                  Effect.option
+                )
+              : Option.none();
+
           const delay =
             response.status === RATE_LIMITED
               ? yield* retryAfterMs(response)
@@ -71,6 +83,8 @@ export const discordGet = Effect.fn("Discord.get")(function* (
               Effect.fail(
                 new DiscordFailed({
                   reason: `GET ${path} returned ${response.status}`,
+                  status: response.status,
+                  ...Option.getOrUndefined(errorBody),
                 })
               ),
             onSome: (limit) => Effect.fail(new DiscordRateLimited(limit)),

@@ -2,7 +2,11 @@ import { Schema } from "effect";
 
 export class DiscordFailed extends Schema.TaggedError<DiscordFailed>()(
   "DiscordFailed",
-  { reason: Schema.String }
+  {
+    reason: Schema.String,
+    status: Schema.optional(Schema.Number),
+    code: Schema.optional(Schema.Number),
+  }
 ) {}
 
 /** Discord answered 429: try again after `retryAfterMs`. */

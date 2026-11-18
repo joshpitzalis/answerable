@@ -1,4 +1,5 @@
 import type { QuestionsReply } from "./index";
+import type { ReconciliationWork } from "./reconciliation.values";
 
 export interface SourceMessage {
   readonly id: string;
@@ -48,6 +49,7 @@ export interface FetchProgress {
 }
 
 export interface HarvestTurn {
+  readonly reconciliation?: ReconciliationWork;
   readonly generation: number;
   readonly channelId: string;
 }
