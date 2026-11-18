@@ -16,12 +16,16 @@ export const acquireStoredPage = (project: Project, policyRevision: string) =>
       return;
     }
 
-    const forum = yield* store.forumRequest(turn.channelId, turn.generation);
+    const forum =
+      turn.reconciliation === undefined
+        ? yield* store.forumRequest(turn.channelId, turn.generation)
+        : undefined;
 
     const workId =
-      forum !== undefined && "thread" in forum
+      turn.reconciliation?.workId ??
+      (forum !== undefined && "thread" in forum
         ? forum.thread.id
-        : turn.channelId;
+        : turn.channelId);
 
     const acquire = Effect.gen(function* () {
       const progress = yield* store.progress(turn.channelId);
@@ -29,14 +33,33 @@ export const acquireStoredPage = (project: Project, policyRevision: string) =>
 
       const page = yield* Discord.use((discord) =>
         discord.sourcePage({
-          channelId: turn.channelId,
+          channelId: turn.reconciliation?.streamId ?? turn.channelId,
           parentChannelId: turn.channelId,
           serverId: project.serverId,
           before: progress.before,
           limit: 50,
           forum,
+          reconciliation: turn.reconciliation?.request,
         })
       );
+
+      if ("reconciliation" in page) {
+        if (turn.reconciliation === undefined) {
+          return yield* Effect.fail(
+            new DiscordFailed({ reason: "Unexpected reconciliation response" })
+          );
+        }
+
+        yield* store.saveReconciliation(
+          turn.reconciliation,
+          turn.generation,
+          page.reconciliation,
+          policyRevision,
+          at
+        );
+
+        return;
+      }
 
       if ("messages" in page) {
         const advanced = yield* store.saveThreadMessages(

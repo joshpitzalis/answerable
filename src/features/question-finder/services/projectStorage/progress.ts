@@ -10,6 +10,7 @@ import { readCycle } from "./cycle";
 import { discoveryComplete } from "./forumState";
 import { countPendingCandidates } from "./processing";
 import { readQuestions } from "./questions";
+import { reconciliationPending } from "./reconciliationWork";
 
 // oxlint-disable-next-line typescript/consistent-type-definitions -- SQLite rows require an implicit index signature.
 type StateRow = {
@@ -194,6 +195,7 @@ export const readSavedProject = (
   const cycle = readCycle(sql);
 
   const incomplete =
+    reconciliationPending(sql, ids) ||
     (cycle.active === 1 &&
       ids.some((id) => !discoveryComplete(sql, id, cycle.generation))) ||
     progress.length < ids.length ||

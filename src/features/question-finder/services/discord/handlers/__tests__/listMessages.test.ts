@@ -56,7 +56,10 @@ describe(listMessages, () => {
     );
 
     expect(failure).toStrictEqual(
-      new DiscordFailed({ reason: "GET /channels/1/messages returned 401" })
+      new DiscordFailed({
+        reason: "GET /channels/1/messages returned 401",
+        status: 401,
+      })
     );
   });
 
@@ -87,7 +90,10 @@ describe(listMessages, () => {
     );
 
     expect(failure).toStrictEqual(
-      new DiscordFailed({ reason: "GET /channels/1/messages returned 500" })
+      new DiscordFailed({
+        reason: "GET /channels/1/messages returned 500",
+        status: 500,
+      })
     );
     expect(failure._tag).toBe("DiscordFailed");
   });
@@ -113,7 +119,10 @@ describe(listMessages, () => {
     );
 
     expect(failure).toStrictEqual(
-      new DiscordFailed({ reason: "GET /channels/1/messages returned 429" })
+      new DiscordFailed({
+        reason: "GET /channels/1/messages returned 429",
+        status: 429,
+      })
     );
   });
 

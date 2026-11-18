@@ -63,6 +63,22 @@ export const fixtureFetch: typeof globalThis.fetch = (input) => {
   // `/api/v9/channels/{id}`: the kind lookup. Every fixture Channel is text.
   if (url.pathname.split("/").at(-2) === "channels") {
     const channelId = url.pathname.split("/").at(-1);
+    const starter = FIXTURE.find((message) => message.thread?.id === channelId);
+
+    if (starter !== undefined) {
+      return Promise.resolve(
+        Response.json({
+          id: channelId,
+          parent_id: starter.channel_id,
+          type: 11,
+          name: starter.content.slice(0, 100),
+          thread_metadata: {
+            archived: false,
+            archive_timestamp: starter.timestamp,
+          },
+        })
+      );
+    }
 
     const project = PROJECTS.find((item) =>
       item.channels.some((channel) => channel.id === channelId)
@@ -75,6 +91,24 @@ export const fixtureFetch: typeof globalThis.fetch = (input) => {
         guild_id: project?.serverId,
         permission_overwrites: [],
       })
+    );
+  }
+
+  const known =
+    /\/channels\/(?<channel>[^/]+)\/messages\/(?<message>\d+)$/u.exec(
+      url.pathname
+    )?.groups;
+
+  if (known !== undefined) {
+    const message =
+      FIXTURE.find(
+        (item) => item.id === known.message && item.channel_id === known.channel
+      ) ?? replies(known.channel).find((item) => item.id === known.message);
+
+    return Promise.resolve(
+      message === undefined
+        ? Response.json({ code: 10_008 }, { status: 404 })
+        : Response.json(message)
     );
   }
 

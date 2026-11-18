@@ -1,6 +1,7 @@
 import type { Project } from "../../domain";
 import type { HarvestTurn } from "../../domain/harvest.values";
 import { acquisitionWork } from "./acquisitionWork";
+import { selectReconciliation } from "./reconciliationWork";
 import { workEligible } from "./retries";
 
 // oxlint-disable-next-line typescript/consistent-type-definitions -- SQLite rows require an implicit index signature.
@@ -9,6 +10,7 @@ type CycleRow = {
   active: number;
   acquire_turn: number;
   process_turn: number;
+  reconcile_turn: number;
 };
 
 export const readCycle = (sql: SqlStorage) =>
@@ -56,6 +58,50 @@ export const claimAcquisition = (
         "UPDATE harvest_cycle SET acquire_turn=? WHERE id=1",
         (index + 1) % project.channels.length
       );
+
+      const reconciliation = selectReconciliation(
+        storage.sql,
+        channel.id,
+        cycle.generation,
+        at
+      );
+
+      const normalEligible = acquisitionWork(
+        storage.sql,
+        [channel.id],
+        cycle.generation
+      ).some(
+        (work) =>
+          !work.work_id.startsWith("reconcile:") &&
+          workEligible(
+            storage.sql,
+            "acquisition",
+            work.work_id,
+            cycle.generation,
+            at
+          )
+      );
+
+      if (
+        reconciliation !== undefined &&
+        (cycle.reconcile_turn === 1 || !normalEligible)
+      ) {
+        storage.sql.exec(
+          "UPDATE harvest_cycle SET reconcile_turn=0 WHERE id=1"
+        );
+        storage.sql.exec(
+          "UPDATE reconciliation_work SET last_selected=(SELECT COALESCE(MAX(last_selected),0)+1 FROM reconciliation_work) WHERE work_id=?",
+          reconciliation.workId
+        );
+
+        return {
+          generation: cycle.generation,
+          channelId: channel.id,
+          reconciliation,
+        };
+      }
+
+      storage.sql.exec("UPDATE harvest_cycle SET reconcile_turn=1 WHERE id=1");
 
       return { generation: cycle.generation, channelId: channel.id };
     }
