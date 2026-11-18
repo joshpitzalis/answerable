@@ -5,6 +5,7 @@ import type {
   HarvestStatus,
   StoredQuestionsReply,
 } from "../../domain/harvest.values";
+import { configurationMatches, readConfiguration } from "./configuration";
 import { readMessages } from "./content";
 import { readCycle } from "./cycle";
 import { discoveryComplete } from "./forumState";
@@ -229,6 +230,8 @@ export const readSavedProject = (
     (status === "working" ||
       (status === "current" && schedule.next_due === schedule.last_manual));
 
+  const runningStatus = waiting ? "waiting" : status;
+
   return {
     questions: readQuestions(sql).flatMap((row) => {
       const channel = project.channels.find(
@@ -242,7 +245,8 @@ export const readSavedProject = (
     contributorStats: contributorStats(contributors(sql, ids)),
     failedChannels,
     harvest: {
-      status: waiting ? "waiting" : status,
+      status:
+        readConfiguration(sql).suspended === 1 ? "suspended" : runningStatus,
       activatedAt: state.activated_at,
       lastAttempt: state.last_attempt,
       lastCompleteSuccess: state.last_complete_success,
@@ -258,7 +262,10 @@ export const finishAttempt = (
   project: Project,
   at: number
 ): void => {
-  if (readSavedProject(sql, project, at).harvest.status === "current") {
+  if (
+    configurationMatches(sql, project) &&
+    readSavedProject(sql, project, at).harvest.status === "current"
+  ) {
     sql.exec("UPDATE harvest_state SET last_complete_success=? WHERE id=1", at);
     sql.exec("UPDATE harvest_cycle SET active=0 WHERE id=1");
   }

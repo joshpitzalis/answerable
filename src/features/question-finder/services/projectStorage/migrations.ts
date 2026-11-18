@@ -68,6 +68,11 @@ export const projectMigrations = [
   ALTER TABLE discord_threads ADD COLUMN is_post INTEGER NOT NULL DEFAULT 1;
   INSERT OR IGNORE INTO fetch_progress (stream_id,parent_channel_id,completed_boundary,seeded)
     SELECT id,parent_channel_id,'0',1 FROM discord_threads;`,
+  `CREATE TABLE harvest_configuration (
+    id INTEGER PRIMARY KEY CHECK(id=1), channel_ids TEXT, owner_name TEXT,
+    suspended INTEGER NOT NULL DEFAULT 0
+  );
+  INSERT INTO harvest_configuration(id) VALUES(1);`,
 ];
 
 export const migrateProjectStorage = (

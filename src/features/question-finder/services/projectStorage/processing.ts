@@ -26,6 +26,8 @@ export const pendingCandidates = (
     CROSS JOIN harvest_cycle
     JOIN processing ON message_id = messages.id
     WHERE completed = 0 AND deleted_at IS NULL
+    AND EXISTS (SELECT 1 FROM harvest_configuration WHERE suspended=0 AND
+      (channel_ids IS NULL OR messages.parent_channel_id IN (SELECT value FROM json_each(channel_ids))))
     AND messages.parent_channel_id IN (${channelIds.map(() => "?").join(",")})
     AND NOT EXISTS (SELECT 1 FROM harvest_retries WHERE kind='processing' AND work_id=message_id AND generation=harvest_cycle.generation AND (exhausted=1 OR next_due>?))
     ORDER BY length(messages.id), messages.id LIMIT ?`,

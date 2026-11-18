@@ -1,6 +1,7 @@
 import type { Project } from "../../domain";
 import type { HarvestTurn } from "../../domain/harvest.values";
 import { acquisitionWork } from "./acquisitionWork";
+import { configurationMatches } from "./configuration";
 import { workEligible } from "./retries";
 
 // oxlint-disable-next-line typescript/consistent-type-definitions -- SQLite rows require an implicit index signature.
@@ -28,7 +29,7 @@ export const claimAcquisition = (
   storage.transactionSync(() => {
     const cycle = readCycle(storage.sql);
 
-    if (cycle.active === 0) {
+    if (cycle.active === 0 || !configurationMatches(storage.sql, project)) {
       return null;
     }
 
@@ -69,6 +70,10 @@ export const claimProcessing = (
   at = Date.now()
 ): string | null =>
   storage.transactionSync(() => {
+    if (!configurationMatches(storage.sql, project)) {
+      return null;
+    }
+
     const cycle = readCycle(storage.sql);
 
     for (let offset = 0; offset < project.channels.length; offset += 1) {

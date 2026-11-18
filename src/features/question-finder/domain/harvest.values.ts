@@ -67,7 +67,13 @@ export interface IngestionCounts {
 }
 
 export interface HarvestStatus {
-  readonly status: "new" | "working" | "waiting" | "current" | "partial";
+  readonly status:
+    | "new"
+    | "working"
+    | "waiting"
+    | "current"
+    | "partial"
+    | "suspended";
   readonly activatedAt: number | null;
   readonly lastAttempt: number | null;
   readonly lastCompleteSuccess: number | null;

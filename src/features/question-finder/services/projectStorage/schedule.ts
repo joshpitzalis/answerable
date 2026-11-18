@@ -5,6 +5,7 @@ import {
   MANUAL_COOLDOWN,
 } from "../../domain/schedule.values";
 import type { HarvestSchedule } from "../../domain/schedule.values";
+import { configurationMatches } from "./configuration";
 import { beginCycle, readCycle } from "./cycle";
 import { activateProject, readSavedProject } from "./progress";
 import { nextWork } from "./retries";
@@ -43,6 +44,10 @@ export const requestScheduledHarvest = (
   at: number
 ): void =>
   storage.transactionSync(() => {
+    if (!configurationMatches(storage.sql, project)) {
+      return;
+    }
+
     const schedule = readSchedule(storage.sql);
 
     if (schedule.projectId === null) {
@@ -91,7 +96,11 @@ export const completeScheduledBatch = (
   sql: SqlStorage,
   project: Project,
   at: number
-): number => {
+): number | null => {
+  if (!configurationMatches(sql, project)) {
+    return readSchedule(sql).nextDue;
+  }
+
   const saved = readSavedProject(sql, project, at);
   const schedule = readSchedule(sql);
 
@@ -132,6 +141,10 @@ export const startScheduledBatch = (
   at: number
 ): void =>
   storage.transactionSync(() => {
+    if (!configurationMatches(storage.sql, project)) {
+      return;
+    }
+
     const schedule = readSchedule(storage.sql);
 
     if (schedule.retryCycleAt > 0 && schedule.retryCycleAt <= at) {

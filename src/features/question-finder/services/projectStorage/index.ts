@@ -45,6 +45,7 @@ import {
   startScheduledBatch,
 } from "./schedule";
 import { saveThreadMessages } from "./threadMessages";
+import { reconcileProjectWake, setProjectWake } from "./wake";
 
 export { migrateProjectStorage, projectMigrations } from "./migrations";
 
@@ -62,6 +63,12 @@ const attempt = <A>(operation: string, body: () => A) =>
 export class ProjectStorage extends Context.Service<
   ProjectStorage,
   {
+    readonly reconcileConfiguration: (
+      project: Project | undefined,
+      mode: "live" | "fixture",
+      enabled: boolean,
+      at: number
+    ) => Effect.Effect<boolean, ProjectStorageError>;
     readonly saveThreadMessages: (
       thread: DiscordThread,
       generation: number,
@@ -79,7 +86,7 @@ export class ProjectStorage extends Context.Service<
     readonly finishScheduled: (
       project: Project,
       at: number
-    ) => Effect.Effect<number, ProjectStorageError>;
+    ) => Effect.Effect<number | null, ProjectStorageError>;
     readonly startScheduled: (
       project: Project,
       at: number
@@ -164,6 +171,16 @@ export class ProjectStorage extends Context.Service<
     Layer.succeed(
       ProjectStorage,
       ProjectStorage.of({
+        reconcileConfiguration: (project, mode, enabled, at) =>
+          Effect.tryPromise({
+            try: () =>
+              reconcileProjectWake(storage, project, mode, enabled, at),
+            catch: (cause) =>
+              new ProjectStorageError({
+                operation: "reconcileConfiguration",
+                cause,
+              }),
+          }),
         saveThreadMessages: (
           thread,
           generation,
@@ -255,13 +272,7 @@ export class ProjectStorage extends Context.Service<
         ),
         requestWake: (at) =>
           Effect.tryPromise({
-            try: async () => {
-              await storage.setAlarm(at);
-              storage.sql.exec(
-                "UPDATE harvest_schedule SET next_alarm=? WHERE id=1",
-                at
-              );
-            },
+            try: () => setProjectWake(storage, at),
             catch: (cause) =>
               new ProjectStorageError({ operation: "requestWake", cause }),
           }),

@@ -86,7 +86,10 @@ const runDue = async (
           const store = yield* ProjectStorage;
           const at = yield* Clock.currentTimeMillis;
           const next = yield* store.finishScheduled(project, at);
-          yield* store.requestWake(next);
+
+          if (next !== null) {
+            yield* store.requestWake(next);
+          }
         })
       ),
     },
@@ -136,22 +139,33 @@ export class ScheduledHarvest {
   readonly runtime: Runtime;
   readonly mode: "live" | "fixture";
   readonly clock: HarvestClock | undefined;
+  readonly enabled: boolean;
 
   constructor(
     runtime: Runtime,
     mode: "live" | "fixture",
-    clock?: HarvestClock
+    clock?: HarvestClock,
+    enabled = true
   ) {
     this.runtime = runtime;
     this.mode = mode;
     this.clock = clock;
+    this.enabled = enabled;
   }
 
-  activate(project: Project) {
+  async activate(project: Project) {
+    if (await this.reconcile(project)) {
+      return this.runtime.runPromise(readStoredProject(project));
+    }
+
     return this.runtime.runPromise(request(project, this.mode, false));
   }
 
-  request(project: Project) {
+  async request(project: Project) {
+    if (await this.reconcile(project)) {
+      return this.runtime.runPromise(readStoredProject(project));
+    }
+
     if (this.#running !== null) {
       return this.read(project);
     }
@@ -159,17 +173,38 @@ export class ScheduledHarvest {
     return this.runtime.runPromise(request(project, this.mode, true));
   }
 
-  read(project: Project) {
+  async read(project: Project) {
+    await this.reconcile(project);
+
     return this.runtime.runPromise(readStoredProject(project));
   }
 
-  alarm(project: Project): Promise<void> {
+  reconcile(project: Project | undefined) {
+    const { mode, enabled } = this;
+
+    return this.runtime.runPromise(
+      Effect.gen(function* () {
+        const at = yield* Clock.currentTimeMillis;
+        const store = yield* ProjectStorage;
+
+        return yield* store.reconcileConfiguration(project, mode, enabled, at);
+      })
+    );
+  }
+
+  alarm(project: Project | undefined): Promise<void> {
+    const configured = this.reconcile(project);
+
     if (this.#running !== null) {
-      return this.#running;
+      const running = this.#running;
+
+      return configured.then(() => running);
     }
 
-    const running = Promise.resolve().then(() =>
-      runDue(this.runtime, project, this.mode, this.clock)
+    const running = configured.then((suspended) =>
+      suspended || project === undefined
+        ? undefined
+        : runDue(this.runtime, project, this.mode, this.clock)
     );
 
     this.#running = running;

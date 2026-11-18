@@ -10,10 +10,7 @@ import {
   migrateProjectStorage,
   ProjectStorage,
 } from "../features/question-finder/services/projectStorage";
-import {
-  harvestStoredProject,
-  readStoredProject,
-} from "../features/question-finder/workflows/harvestStoredProject";
+import { harvestStoredProject } from "../features/question-finder/workflows/harvestStoredProject";
 import type { StoredHarvestServices } from "../features/question-finder/workflows/harvestStoredProject";
 import {
   executeProjectWake,
@@ -44,7 +41,12 @@ export class ProjectHarvest extends DurableObject {
         : Discord.stub,
       env.DISCORD_BOT_TOKEN ? Judge.everythingAnswerable : Judge.stub
     );
-    this.#scheduled = new ScheduledHarvest(this.#runtime, this.#mode);
+    this.#scheduled = new ScheduledHarvest(
+      this.#runtime,
+      this.#mode,
+      undefined,
+      env.HARVEST_ENABLED !== "false"
+    );
     ctx.blockConcurrencyWhile(() => {
       migrateProjectStorage(ctx.storage);
 
@@ -56,33 +58,40 @@ export class ProjectHarvest extends DurableObject {
     return this.#runtime.runPromise(saveProjectQuestions(rows));
   }
 
-  harvest(project: Project) {
-    return harvestStoredProject(this.#runtime, project, this.#mode);
+  async harvest(project: Project) {
+    const trusted = await this.#project(project.id);
+
+    if (await this.#scheduled.reconcile(trusted)) {
+      return this.#scheduled.read(trusted);
+    }
+
+    return harvestStoredProject(this.#runtime, trusted, this.#mode);
   }
 
-  requestHarvest(project: Project) {
-    return this.#scheduled.request(this.#project(project.id));
+  async requestHarvest(project: Project) {
+    return this.#scheduled.request(await this.#project(project.id));
   }
 
-  activate(projectId: string) {
-    return this.#scheduled.activate(this.#project(projectId));
+  async activate(projectId: string) {
+    return this.#scheduled.activate(await this.#project(projectId));
   }
 
-  #project(projectId: string): Project {
+  async #project(projectId: string): Promise<Project> {
     const project = resolveHarvestProject(projectId, this.#mode);
 
     if (
       project === undefined ||
       this.ctx.id.name !== `${this.#mode}:${project.id}`
     ) {
+      await this.#scheduled.reconcile(undefined);
       throw new Error("Unknown Project storage identity");
     }
 
     return project;
   }
 
-  read(project: Project) {
-    return this.#runtime.runPromise(readStoredProject(project));
+  async read(project: Project) {
+    return this.#scheduled.read(await this.#project(project.id));
   }
 
   readQuestions(): Promise<QuestionsRow[]> {
@@ -109,10 +118,6 @@ export class ProjectHarvest extends DurableObject {
     }
 
     const project = resolveHarvestProject(schedule.projectId, this.#mode);
-
-    if (project === undefined || schedule.mode !== this.#mode) {
-      return;
-    }
 
     await this.#scheduled.alarm(project);
   }
