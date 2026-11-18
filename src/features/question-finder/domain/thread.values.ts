@@ -1,4 +1,5 @@
 import type { SourceMessage } from "./harvest.values";
+import type { ReconciliationResult } from "./reconciliation.values";
 
 export interface DiscordThread {
   readonly id: string;
@@ -28,6 +29,7 @@ export type ForumRequest =
     };
 
 export type SourcePage =
+  | { readonly reconciliation: ReconciliationResult }
   | readonly SourceMessage[]
   | ThreadPage
   | { readonly starter: SourceMessage }

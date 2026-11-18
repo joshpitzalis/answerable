@@ -80,6 +80,21 @@ export const forumWire = () => {
       );
     }
 
+    const threadId = /^\/channels\/(?<id>\d+)$/u.exec(path)?.groups?.id;
+
+    if (threadId !== undefined) {
+      const thread = [
+        ...state.active,
+        ...[...state.archives.values()].flatMap((page) => page.threads),
+      ].find((item) => item.id === threadId);
+
+      return Promise.resolve(
+        thread === undefined
+          ? Response.json({ code: 10_003 }, { status: 404 })
+          : Response.json(thread)
+      );
+    }
+
     const stream = /^\/channels\/(?<id>\d+)\/messages$/u.exec(path)?.groups?.id;
 
     if (stream !== undefined) {

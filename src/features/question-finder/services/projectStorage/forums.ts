@@ -90,6 +90,12 @@ export const saveThreadPage = (
       .one();
 
     if (page.scope === "active") {
+      sql.exec(
+        "UPDATE fetch_progress SET is_forum=? WHERE stream_id=?",
+        Number(page.isForum !== false),
+        channelId
+      );
+
       const unique = [
         ...new Map(page.threads.map((thread) => [thread.id, thread])).values(),
       ];

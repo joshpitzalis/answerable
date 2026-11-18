@@ -12,11 +12,14 @@ export const acquisitionWork = (
     UNION ALL SELECT t.id AS work_id,t.parent_channel_id AS channel_id FROM discord_threads t
     JOIN forum_scans s ON s.channel_id=t.parent_channel_id
     WHERE t.parent_channel_id IN (${channelIds.map(() => "?").join(",")}) AND s.generation=? AND s.archive_done=1
-      AND (t.starter_pending=1 OR t.collect_pending=1 OR (t.archived=0 AND t.collected_generation<?))`,
+      AND (t.starter_pending=1 OR t.collect_pending=1 OR (t.archived=0 AND t.collected_generation<?))
+    UNION ALL SELECT work_id,channel_id FROM reconciliation_work
+      WHERE channel_id IN (${channelIds.map(() => "?").join(",")})`,
       ...channelIds,
       generation,
       ...channelIds,
       generation,
-      generation
+      generation,
+      ...channelIds
     )
     .toArray();

@@ -47,6 +47,9 @@ describe("trusted Harvest configuration", () => {
           project: "renamed",
           channel: { name: "Renamed channel" },
         });
+        storage.sql.exec(
+          "INSERT INTO reconciliation_work(work_id,channel_id,stream_id,kind) VALUES ('removed-recheck','800','800','text')"
+        );
         const removed = await scheduled.read({ ...renamed, channels: [] });
         expect(removed).toMatchObject({
           questions: [],
@@ -54,9 +57,11 @@ describe("trusted Harvest configuration", () => {
         });
         expect(
           storage.sql
-            .exec<{ count: number }>("SELECT COUNT(*) AS count FROM messages")
-            .one().count
-        ).toBe(1);
+            .exec<{ retained: number; work: number }>(
+              "SELECT (SELECT COUNT(*) FROM messages) AS retained, (SELECT COUNT(*) FROM reconciliation_work) AS work"
+            )
+            .one()
+        ).toStrictEqual({ retained: 1, work: 0 });
         const restored = await scheduled.activate(renamed);
         expect(restored.questions).toHaveLength(1);
         expect(

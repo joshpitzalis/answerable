@@ -106,6 +106,10 @@ export const reconcileConfiguration = (
 
     if (sources !== null) {
       sql.exec(
+        "DELETE FROM reconciliation_work WHERE channel_id NOT IN (SELECT value FROM json_each(?))",
+        sources
+      );
+      sql.exec(
         "DELETE FROM harvest_retries WHERE channel_id NOT IN (SELECT value FROM json_each(?))",
         sources
       );
