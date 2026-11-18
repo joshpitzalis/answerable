@@ -1,12 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
 
 import { scheduledProject } from "#/app/projectHarvestClient";
-import { activeProjects, runtime } from "#/app/runtime";
+import { activeProjects } from "#/app/runtime";
 
-import type { Project, QuestionsReply } from "./domain";
+import type { Project } from "./domain";
 import type { StoredQuestionsReply } from "./domain/harvest.values";
 import { findProject } from "./lib/projects.utils";
-import { listQuestions as listQuestionsWorkflow } from "./workflows/listQuestions";
 
 export type { FailedChannel, QuestionsReply, QuestionsRow } from "./domain";
 
@@ -27,9 +26,11 @@ export const parseProject = (
 export const listQuestions = createServerFn({ method: "GET" })
   .validator((slug: string) => parseProject(slug).slug)
   // Which Projects are live depends on the token, which only the handler may read.
-  .handler(({ data: slug }): Promise<QuestionsReply> =>
-    listQuestionsWorkflow(runtime, parseProject(slug, activeProjects()))
-  );
+  .handler(({ data: slug }): Promise<StoredQuestionsReply> => {
+    const project = parseProject(slug, activeProjects());
+
+    return scheduledProject(project).read(project);
+  });
 
 export const activateHarvest = createServerFn({ method: "POST" })
   .validator((slug: string) => parseProject(slug).slug)

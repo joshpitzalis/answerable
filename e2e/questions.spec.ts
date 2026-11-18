@@ -4,6 +4,8 @@ const CLOWNFISH = /clownfish sleep tucked/u;
 const XSTATE_STOP_ACTORS = /stop child actors by hand/u;
 const XSTATE_GUARDS = /Can guards read the event/u;
 
+test.setTimeout(90_000);
+
 test("shows the failure with Retry, and Retry loads the questions without a reload", async ({
   page,
 }) => {
@@ -32,7 +34,10 @@ test("the root URL redirects to the first Project and lists its answerable fixtu
       "Why do clownfish sleep tucked into the layers of an anemone's stinging tentacles?"
     )
   ).toBeVisible();
-  // The fixture thread already answered by ME stays out of the list.
+  await expect(page.getByText("Up to date", { exact: true })).toBeVisible({
+    timeout: 60_000,
+  });
+  // Owner replies arrive in later durable batches than their starters.
   await expect(page.getByText(/Can a mudskipper really isolate/u)).toHaveCount(
     0
   );
@@ -69,6 +74,9 @@ test("each Project has a tab with its own URL, marked when current, showing only
   await expect(page.getByText(XSTATE_STOP_ACTORS)).toBeVisible();
   await expect(page.getByText(XSTATE_GUARDS)).toBeVisible();
   await expect(page.getByText(CLOWNFISH)).toHaveCount(0);
+  await expect(page.getByText("Up to date", { exact: true })).toBeVisible({
+    timeout: 60_000,
+  });
   // Answered by the XState owner, not answerable, and not answerable.
   await expect(page.getByText(/Do delayed transitions restart/u)).toHaveCount(
     0
@@ -179,7 +187,9 @@ test("reload keeps the tab, and back and forward move between tabs", async ({
   await expect(page.getByText(XSTATE_GUARDS)).toBeVisible();
 });
 
-test("switching tabs loads again, with no Refresh button", async ({ page }) => {
+test("switching tabs reads saved questions again and offers Refresh", async ({
+  page,
+}) => {
   let loads = 0;
 
   await page.route("**/_serverFn/**", (route) => {
@@ -196,12 +206,71 @@ test("switching tabs loads again, with no Refresh button", async ({ page }) => {
   await page.getByRole("link", { name: "Effect", exact: true }).click();
   await expect(page.getByText(CLOWNFISH)).toBeVisible();
 
-  expect(loads).toBe(afterFirstLoad + 2);
-  await expect(page.getByRole("button", { name: /refresh/iu })).toHaveCount(0);
+  expect(loads).toBeGreaterThanOrEqual(afterFirstLoad + 2);
+  await expect(page.getByRole("button", { name: "Refresh" })).toBeVisible();
+});
+
+test("Refresh failure retains saved rows and the Channel filter, then Retry recovers", async ({
+  page,
+}) => {
+  await page.goto("/xstate");
+  await expect(page.getByText(XSTATE_GUARDS)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Refresh" })).toBeEnabled();
+  await page.getByRole("combobox", { name: "Search" }).click();
+  await page.getByRole("option", { name: "Channel" }).click();
+  await page.getByRole("combobox", { name: "Value" }).click();
+  await page.getByRole("option", { name: "xstate-guards" }).click();
+  await page.route("**/_serverFn/**", (route) => route.abort());
+  await page.getByRole("button", { name: "Refresh" }).click();
+  await expect(
+    page.getByText("Collection status could not be updated")
+  ).toBeVisible();
+  await expect(page.getByText(XSTATE_GUARDS)).toBeVisible();
+  await expect(page.getByText(XSTATE_STOP_ACTORS)).toHaveCount(0);
+  await page.unroute("**/_serverFn/**");
+  await page.getByRole("button", { name: "Retry" }).click();
+  await expect(
+    page.getByText("Collection status could not be updated")
+  ).toHaveCount(0);
+  await expect(page.getByText(XSTATE_GUARDS)).toBeVisible();
+  await expect(page.getByText(XSTATE_STOP_ACTORS)).toHaveCount(0);
+  await page.getByRole("button", { name: "Clear all" }).click();
+  await expect(page.getByText(XSTATE_STOP_ACTORS)).toBeVisible();
 });
 
 test("an unknown Project slug shows not-found", async ({ page }) => {
   await page.goto("/nope");
 
   await expect(page.getByText("Project not found")).toBeVisible();
+});
+
+test("saved questions remain usable after Refresh and navigation at desktop and mobile sizes", async ({
+  page,
+}, testInfo) => {
+  await page.goto("/effect");
+  await expect(page.getByText("Up to date", { exact: true })).toBeVisible({
+    timeout: 60_000,
+  });
+  await page.getByRole("button", { name: "Refresh" }).click();
+  await expect(page.getByText(CLOWNFISH)).toBeVisible();
+  await page.getByRole("link", { name: "XState", exact: true }).click();
+  await expect(page.getByText(XSTATE_GUARDS)).toBeVisible();
+  await page.getByRole("link", { name: "Effect", exact: true }).click();
+  await expect(page.getByText(CLOWNFISH)).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath("desktop.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole("button", { name: "Refresh" })).toBeVisible();
+
+  const bodyFits = await page.evaluate(
+    () => document.documentElement.scrollWidth <= window.innerWidth
+  );
+
+  expect(bodyFits).toBeTruthy();
+  await page.screenshot({
+    path: testInfo.outputPath("mobile.png"),
+    fullPage: true,
+  });
 });
