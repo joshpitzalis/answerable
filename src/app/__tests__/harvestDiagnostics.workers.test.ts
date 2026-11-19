@@ -71,6 +71,12 @@ describe("durable Harvest diagnostics", () => {
             questions: [],
             harvest: { pendingProcessing: 0, status: "partial" },
           });
+          expect(saved.failedChannels).toMatchObject([
+            { name: "secret-failed", reason: expect.stringMatching(/\S/u) },
+          ]);
+          expect(
+            saved.failedChannels.map(({ reason }) => reason).join(" ")
+          ).not.toMatch(/secret-token/u);
           expect(lines).toStrictEqual([
             "harvest ingestion inserted=0 updated=0 unchanged=0",
             "harvest acquisition channel=1 failed=0 pending=0",
@@ -124,6 +130,12 @@ describe("durable Harvest diagnostics", () => {
       try {
         const saved = await harvestStoredProject(runtime, project, "live");
         expect(saved.questions.map((row) => row.id)).toStrictEqual(["101"]);
+        expect(saved.failedChannels).toMatchObject([
+          { reason: expect.stringMatching(/\S/u) },
+        ]);
+        expect(
+          saved.failedChannels.map(({ reason }) => reason).join(" ")
+        ).not.toMatch(/secret-token/u);
         expect(lines).toStrictEqual([
           "harvest ingestion inserted=3 updated=0 unchanged=0",
           "harvest acquisition channel=1 failed=0 pending=3",

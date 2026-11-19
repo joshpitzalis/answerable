@@ -13,6 +13,7 @@ import {
   harvestStoredProject,
   readStoredProject,
 } from "../../features/question-finder/workflows/harvestStoredProject";
+import { processCandidate } from "../../features/question-finder/workflows/processStoredCandidates";
 import { projectHarvestStub } from "../projectHarvest";
 import {
   discoveryOnlyDiscord,
@@ -141,6 +142,9 @@ describe("processing commit", () => {
         await expect(
           runtime.runPromise(store.complete(old, null))
         ).resolves.toBeFalsy();
+        await expect(
+          runtime.runPromise(processCandidate(project, old, [], "live"))
+        ).resolves.not.toBe("kept");
         const pending = await runtime.runPromise(store.pending(["800"]));
         expect(pending).toHaveLength(1);
         expect(pending[0]?.message).toMatchObject({

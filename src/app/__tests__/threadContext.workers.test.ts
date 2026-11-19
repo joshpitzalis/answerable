@@ -1,5 +1,6 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
 import { env } from "cloudflare:workers";
+import { Layer, Logger } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { Discord } from "../../features/question-finder/services/discord";
@@ -17,6 +18,7 @@ describe("stored thread context", () => {
     const project = textProject("thread-context");
     const stub = projectHarvestStub(env.PROJECT_HARVEST, project, "fixture");
     const wire = forumWire();
+    const lines: string[] = [];
     wire.state.active = [forumThread("101")];
 
     const reply = {
@@ -43,7 +45,14 @@ describe("stored thread context", () => {
     ]);
     await withHarvestRuntime(
       stub,
-      Discord.layer("invented", wire.fetch),
+      Layer.merge(
+        Discord.layer("invented", wire.fetch),
+        Logger.layer([
+          Logger.make(({ message }) => {
+            lines.push(String(message));
+          }),
+        ])
+      ),
       Judge.everythingAnswerable,
       async (runtime) => {
         const collect = async () => {
@@ -64,8 +73,13 @@ describe("stored thread context", () => {
         };
 
         const first = await collect();
-        expect(first.questions).toStrictEqual([]);
-        expect(first.contributorStats?.topContributors).toHaveLength(2);
+        expect({
+          questions: first.questions,
+          contributors: first.contributorStats?.topContributors.length,
+        }).toStrictEqual({ questions: [], contributors: 2 });
+        expect(lines).toContain(
+          "harvest channel=1 evaluated=1 questions=1 unanswered=0 kept=0 failed=0 pending=0"
+        );
         wire.state.active = [
           { ...forumThread("101"), name: "Renamed question" },
         ];

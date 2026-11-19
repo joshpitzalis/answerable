@@ -56,6 +56,9 @@ For #309, a valid invented local registry was paired temporarily with an empty f
 - Always attempting the text-thread association UPDATE for a forum does not change valid stored data: its predicate requires the message to be in the parent Channel, while a forum starter is stored in the distinct thread Channel. The actual text-thread association remains required and tested.
 - Reconciliation's `messages: [observed]` argument to `ingestMessage` can be empty because that single-message writer reads only `observedAt` and `policyRevision` from the page object; the observed message is passed separately. This does not apply to `ingestPage`, which iterates the page's messages.
 - The same unused page-message argument applies to the single forum-starter writer. The legacy Discord comparison's unequal-length branch can use `>=` instead of `>` because equal lengths have already selected the other ternary branch.
+- Removing `actor.stop()` after the awaited terminal `toPromise` in the native wake proof is equivalent for this non-cancellable function: installed XState's `createActor` implementation calls `_stopProcedure` on both `_terminate({status: 'done'})` and `_error`, before completing/rejecting observers. The explicit finally remains as defensive lifecycle cleanup.
+- Always applying the text-page upper-bound filter is equivalent when no upper boundary exists: its null fallback compares each message ID to itself and keeps every message. Bypassing the filter for a captured range is not equivalent.
+- The processing outcome `rejected` is only the non-kept remainder in the numeric funnel; no consumer matches that literal. Replacing it with another non-special string leaves the counts unchanged. Stale/negative outcomes still must not report `kept`, and fixture owner replies must still report `answered`.
 - The thread completion check's generation equality can be always true while retaining `before === null`: every non-null result from `advanceMessagePage` with no continuation carries the supplied generation. The continuation check itself remains necessary when a completed thread reopens within the same generation.
 
 ## Current-run triage
@@ -147,6 +150,16 @@ IDs refer to the replacement run's saved events; source changes can renumber mut
 | Source #1015 | Public text-thread discovery returns non-forum/non-post metadata, independently of the forum discovery contract |
 | Forum #1672 | Metadata proof also asserts the initial forum starter's exact committed ingestion count |
 | Forum #1678 | Processing a starter followed by an empty first comment page does not requeue unchanged context |
+| Progress #1966 | Removing an unfinished Channel permits remaining completed sources to become current while preserving the removed source's raw progress |
+| Progress #1992/#1994/#1995 | Saved failure reports deduplicate identical Channel/reason pairs without merging sibling Channels or distinct reasons |
+| Progress #2010 | Real scheduled acquisition keeps freshness working after one Channel finishes discovery while its seeded sibling still has an archive scan pending |
+| Progress #2008/#2013/#2016/#2018/#2022 and related progress guards | Real schema-three upgrades preserve unseeded, incomplete-continuation, missing-source and fully completed freshness when the later cycle table initializes inactive |
+| Progress #2066 | The same mixed-discovery journey reports waiting before its persisted continuation deadline, then working once eligible |
+| Progress #2080 and processing #3094 | Saved read metadata and actual processing both preserve each row's source Channel when configured Channels are reordered/renamed |
+| Acquisition #2854 | Reconciliation cannot advance the pending-thread selection cursor without performing that thread's work; subsequent ordinary collection preserves rotation |
+| Processing #3124/#3126/#3128 | The owner-answered fixture reports unanswered=0; stale processing that cannot commit never reports a kept result |
+| Stored failure-reason literals | Acquisition, rate-limit and Judge failures expose a nonempty safe explanation in saved failure rows, without leaking the original secret-bearing error |
+| Acquisition #2905/#2907/#2908/#2910/#2912 | The actual text acquisition workflow filters above-upper arrivals while retaining the exact captured boundary and completing that saved range |
 
 ## Interrupted run
 

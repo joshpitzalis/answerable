@@ -3,10 +3,59 @@ import { describe, expect, it } from "vitest";
 
 import { ProjectStorage } from "../../features/question-finder/services/projectStorage";
 import { projectHarvestStub } from "../projectHarvest";
-import { textProject, unavailableDiscord } from "./harvest.test-utils";
-import { withScheduledHarvest } from "./scheduledHarvest.test-utils";
+import {
+  discordPage,
+  textProject,
+  unavailableDiscord,
+} from "./harvest.test-utils";
+import {
+  finishTextDiscovery,
+  withScheduledHarvest,
+} from "./scheduledHarvest.test-utils";
 
-describe("configured source additions", () => {
+describe("configured source changes", () => {
+  it("ignores a removed Channel's unfinished coverage without deleting its progress", async () => {
+    const remaining = textProject("removed-unfinished-channel");
+
+    const original = {
+      ...remaining,
+      channels: [...remaining.channels, { id: "801", name: "removed" }],
+    };
+
+    const stub = projectHarvestStub(env.PROJECT_HARVEST, original, "live");
+    const time = { now: 2_000_000_000_000 };
+
+    await withScheduledHarvest(
+      stub,
+      time,
+      discordPage([]),
+      async (scheduled) => {
+        await scheduled.activate(original);
+        const store = await scheduled.runtime.runPromise(ProjectStorage);
+
+        const unfinished = await scheduled.runtime.runPromise(
+          store.progress("801")
+        );
+
+        expect(unfinished).toMatchObject({
+          seeded: false,
+          completedBoundary: null,
+        });
+        await scheduled.read(remaining);
+        await scheduled.alarm(remaining);
+        await finishTextDiscovery(scheduled, remaining, time);
+        await expect(scheduled.read(remaining)).resolves.toMatchObject({
+          questions: [],
+          failedChannels: [],
+          harvest: { status: "current", pendingProcessing: 0 },
+        });
+        await expect(
+          scheduled.runtime.runPromise(store.progress("801"))
+        ).resolves.toStrictEqual(unfinished);
+      }
+    );
+  });
+
   it("creates progress for a newly configured Channel when the next batch starts", async () => {
     const original = textProject("added-channel-progress");
 
