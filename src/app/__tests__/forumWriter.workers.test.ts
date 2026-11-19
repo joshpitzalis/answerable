@@ -4,6 +4,7 @@ import {
   ProjectStorage,
   ProjectStorageError,
 } from "../../features/question-finder/services/projectStorage";
+import { textProject } from "./harvest.test-utils";
 import {
   at,
   reply,
@@ -15,7 +16,7 @@ describe("forum storage boundaries", () => {
   it("keeps parent progress incomplete when content finishes before archives", async () => {
     await withTrackedThread(
       "unfinished-archive-progress",
-      async (scheduled, _storage, generation) => {
+      async (scheduled, storage, generation) => {
         const store = await scheduled.runtime.runPromise(ProjectStorage);
         await scheduled.runtime.runPromise(
           store.saveForumStarter("800", generation, reply("101"), "test", at)
@@ -37,6 +38,19 @@ describe("forum storage boundaries", () => {
         await expect(
           scheduled.runtime.runPromise(store.progress("800"))
         ).resolves.toMatchObject({ generation });
+        await scheduled.runtime.runPromise(
+          store.startScheduled(
+            textProject("unfinished-archive-progress"),
+            at + 86_400_000
+          )
+        );
+        expect(
+          storage.sql
+            .exec(
+              "SELECT stream_id FROM reconciliation_work WHERE kind='recent' ORDER BY stream_id"
+            )
+            .toArray()
+        ).toStrictEqual([{ stream_id: "101" }]);
       }
     );
   });

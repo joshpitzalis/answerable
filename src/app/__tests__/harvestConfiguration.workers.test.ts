@@ -27,102 +27,113 @@ const wire = Layer.succeed(
 );
 
 describe("trusted Harvest configuration", () => {
-  it("refuses new work claimed with stale Project metadata or while suspended", async () => {
-    const project = textProject("configuration-claims");
-    const stub = projectHarvestStub(env.PROJECT_HARVEST, project, "live");
-    await withScheduledHarvest(
-      stub,
-      { now: 2_000_000_000_000 },
-      wire,
-      async (scheduled) => {
-        await scheduled.activate(project);
-        const store = await scheduled.runtime.runPromise(ProjectStorage);
+  it.each(["owner", "channels"])(
+    "refuses stale %s metadata and suspended claims",
+    async (change) => {
+      const project = textProject(`configuration-claims-${change}`);
+      const stub = projectHarvestStub(env.PROJECT_HARVEST, project, "live");
+      await withScheduledHarvest(
+        stub,
+        { now: 2_000_000_000_000 },
+        wire,
+        async (scheduled) => {
+          await scheduled.activate(project);
+          const store = await scheduled.runtime.runPromise(ProjectStorage);
 
-        const progress = await scheduled.runtime.runPromise(
-          store.progress("800")
-        );
+          const progress = await scheduled.runtime.runPromise(
+            store.progress("800")
+          );
 
-        await scheduled.runtime.runPromise(
-          store.ingestPage({
-            messages: [sourceMessage("101")],
-            progress,
-            observedAt: 2_000_000_000_000,
-            policyRevision: "test",
-          })
-        );
-        const changed = { ...project, ownerName: "New owner" };
-        await scheduled.read(changed);
-
-        const claim = (current: typeof project) =>
-          scheduled.runtime.runPromise(
-            Effect.gen(function* () {
-              return {
-                acquisition: yield* store.claimAcquisition(current),
-                processing: yield* store.claimProcessing(current),
-              };
+          await scheduled.runtime.runPromise(
+            store.ingestPage({
+              messages: [sourceMessage("101")],
+              progress,
+              observedAt: 2_000_000_000_000,
+              policyRevision: "test",
             })
           );
 
-        await expect(claim(project)).resolves.toStrictEqual({
-          acquisition: null,
-          processing: null,
-        });
-        await expect(claim(changed)).resolves.toMatchObject({
-          acquisition: { channelId: "800" },
-          processing: "800",
-        });
+          const changed =
+            change === "owner"
+              ? { ...project, ownerName: "New owner" }
+              : {
+                  ...project,
+                  channels: [...project.channels, { id: "801", name: "Added" }],
+                };
 
-        const stopped = new ScheduledHarvest(
-          scheduled.runtime,
-          "live",
-          undefined,
-          false
-        );
+          await scheduled.read(changed);
 
-        await stopped.read(changed);
-        await expect(claim(changed)).resolves.toStrictEqual({
-          acquisition: null,
-          processing: null,
-        });
-
-        const paused = await scheduled.runtime.runPromise(
-          Effect.gen(function* () {
-            yield* store.requestScheduled(
-              changed,
-              "live",
-              true,
-              2_000_000_001_000
-            );
-            yield* store.startScheduled(changed, 2_000_000_001_000);
-            const started = yield* store.schedule;
-
-            const due = yield* store.finishScheduled(
-              changed,
-              2_000_000_001_000
+          const claim = (current: typeof project) =>
+            scheduled.runtime.runPromise(
+              Effect.gen(function* () {
+                return {
+                  acquisition: yield* store.claimAcquisition(current),
+                  processing: yield* store.claimProcessing(current),
+                };
+              })
             );
 
-            const finished = yield* store.schedule;
+          await expect(claim(project)).resolves.toStrictEqual({
+            acquisition: null,
+            processing: null,
+          });
+          await expect(claim(changed)).resolves.toMatchObject({
+            acquisition: { channelId: "800" },
+            processing: "800",
+          });
 
-            return { started, due, finished };
-          })
-        );
+          const stopped = new ScheduledHarvest(
+            scheduled.runtime,
+            "live",
+            undefined,
+            false
+          );
 
-        expect(paused).toMatchObject({
-          started: {
-            nextDue: null,
-            runGeneration: null,
-            lastManual: 2_000_000_000_000,
-          },
-          due: null,
-          finished: {
-            nextDue: null,
-            runGeneration: null,
-            lastManual: 2_000_000_000_000,
-          },
-        });
-      }
-    );
-  });
+          await stopped.read(changed);
+          await expect(claim(changed)).resolves.toStrictEqual({
+            acquisition: null,
+            processing: null,
+          });
+
+          const paused = await scheduled.runtime.runPromise(
+            Effect.gen(function* () {
+              yield* store.requestScheduled(
+                changed,
+                "live",
+                true,
+                2_000_000_001_000
+              );
+              yield* store.startScheduled(changed, 2_000_000_001_000);
+              const started = yield* store.schedule;
+
+              const due = yield* store.finishScheduled(
+                changed,
+                2_000_000_001_000
+              );
+
+              const finished = yield* store.schedule;
+
+              return { started, due, finished };
+            })
+          );
+
+          expect(paused).toMatchObject({
+            started: {
+              nextDue: null,
+              runGeneration: null,
+              lastManual: 2_000_000_000_000,
+            },
+            due: null,
+            finished: {
+              nextDue: null,
+              runGeneration: null,
+              lastManual: 2_000_000_000_000,
+            },
+          });
+        }
+      );
+    }
+  );
 
   it("keeps saved identity on rename, hides removed Channels and resumes retained progress", async () => {
     const project = textProject("configuration-retention");
@@ -260,9 +271,10 @@ describe("trusted Harvest configuration", () => {
     async (reason) => {
       const project = textProject(`configuration-${reason}`);
       const stub = projectHarvestStub(env.PROJECT_HARVEST, project, "live");
+      const time = { now: 2_000_000_000_000 };
       await withScheduledHarvest(
         stub,
-        { now: 2_000_000_000_000 },
+        time,
         wire,
         async (scheduled, storage) => {
           await scheduled.activate(project);
@@ -287,7 +299,7 @@ describe("trusted Harvest configuration", () => {
 
           const restored = await scheduled.read(project);
           expect(restored.questions).toHaveLength(1);
-          await expect(storage.getAlarm()).resolves.not.toBeNull();
+          await expect(storage.getAlarm()).resolves.toBe(time.now);
         }
       );
     }

@@ -249,6 +249,7 @@ describe("forum discovery boundary", () => {
   it.each([
     { threads: [thread], has_more: false },
     { threads: [], has_more: "false" },
+    { threads: [] },
     {
       threads: [
         {

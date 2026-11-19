@@ -11,7 +11,7 @@ import { textProject, unavailableDiscord } from "./harvest.test-utils";
 import { withScheduledHarvest } from "./scheduledHarvest.test-utils";
 
 describe("suspension across native alarm writes", () => {
-  it("does not transiently arm disabled, removed or mismatched configuration", async () => {
+  it("does not transiently arm unchanged, disabled, removed or mismatched configuration", async () => {
     const project = textProject("no-transient-resume");
     const stub = projectHarvestStub(env.PROJECT_HARVEST, project, "live");
     const at = 2_000_000_000_000;
@@ -30,9 +30,11 @@ describe("suspension across native alarm writes", () => {
         };
 
         try {
+          await scheduled.read(project);
           await scheduled.runtime.runPromise(
             store.reconcileConfiguration(project, "live", false, at)
           );
+          await scheduled.runtime.runPromise(store.requestWake(at + 1000));
           await scheduled.runtime.runPromise(
             store.reconcileConfiguration(undefined, "live", true, at)
           );

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -94,6 +95,12 @@ describe("the questions headline", () => {
 
   it("refreshes the visible rows and Channel filter choices", async () => {
     const loaded = reply({});
+    let finishRefresh: ((value: StoredQuestionsReply) => void) | undefined;
+
+    // oxlint-disable-next-line promise/avoid-new -- Hold the remote reply until the test releases Refresh.
+    const pending = new Promise<StoredQuestionsReply>((resolve) => {
+      finishRefresh = resolve;
+    });
 
     const refreshed = reply({
       questions: [
@@ -118,12 +125,21 @@ describe("the questions headline", () => {
         machine={createQuestionsMachine({
           load: () => Promise.resolve(loaded),
           activate: () => Promise.resolve(loaded),
-          refresh: () => Promise.resolve(refreshed),
+          refresh: () => pending,
         })}
       />
     );
     await screen.findByText("Up to date");
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await screen.findByText("Refreshing");
+    expect(
+      screen.getByRole("button", { name: "Refresh" }).hasAttribute("disabled")
+    ).toBeTruthy();
+    await act(() => {
+      finishRefresh?.(refreshed);
+
+      return pending;
+    });
     await screen.findByText("How does the new collection appear?");
     fireEvent.click(screen.getByRole("combobox", { name: "Search" }));
     fireEvent.click(await screen.findByRole("option", { name: "Channel" }));

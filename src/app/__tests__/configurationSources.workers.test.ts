@@ -3,11 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { ProjectStorage } from "../../features/question-finder/services/projectStorage";
 import { projectHarvestStub } from "../projectHarvest";
-import {
-  discordPage,
-  textProject,
-  unavailableDiscord,
-} from "./harvest.test-utils";
+import { discordPage, textProject } from "./harvest.test-utils";
 import {
   finishTextDiscovery,
   withScheduledHarvest,
@@ -69,9 +65,11 @@ describe("configured source changes", () => {
     await withScheduledHarvest(
       stub,
       time,
-      unavailableDiscord,
-      async (scheduled) => {
+      discordPage([]),
+      async (scheduled, storage) => {
         await scheduled.activate(original);
+        await scheduled.alarm(original);
+        await finishTextDiscovery(scheduled, original, time);
         const store = await scheduled.runtime.runPromise(ProjectStorage);
 
         const previous = await scheduled.runtime.runPromise(
@@ -82,6 +80,7 @@ describe("configured source changes", () => {
         await scheduled.runtime.runPromise(
           store.reconcileConfiguration(project, "live", true, time.now)
         );
+        await expect(storage.getAlarm()).resolves.toBe(time.now);
         await scheduled.runtime.runPromise(
           store.startScheduled(project, time.now)
         );

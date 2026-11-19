@@ -13,6 +13,32 @@ import {
 } from "./harvest.test-utils";
 
 describe("processing claim fairness", () => {
+  it("does not acquire activated sources until a cycle begins", async () => {
+    const project = textProject("inactive-acquisition");
+    const stub = projectHarvestStub(env.PROJECT_HARVEST, project, "live");
+
+    await withHarvestRuntime(
+      stub,
+      discordPage([]),
+      Judge.everythingAnswerable,
+      (runtime) =>
+        runtime.runPromise(
+          Effect.gen(function* () {
+            const store = yield* ProjectStorage;
+            yield* store.reconcileConfiguration(project, "live", true, 1000);
+            yield* store.activate(project, 1000);
+
+            expect(yield* store.claimAcquisition(project)).toBeNull();
+            yield* store.beginCycle;
+            expect(yield* store.claimAcquisition(project)).toMatchObject({
+              channelId: "800",
+              generation: 1,
+            });
+          })
+        )
+    );
+  });
+
   it("has no acquisition or processing claim after every Channel is removed", async () => {
     const original = textProject("no-configured-channels");
     const project = { ...original, channels: [] };

@@ -191,34 +191,52 @@ describe("known-message reconciliation", () => {
     }
   );
 
-  it("checks displayed thread metadata in the same five-request allowance", async () => {
-    const fixture = wire(200, 0, true, {
-      id: "101",
-      parent_id: "800",
-      type: 11,
-      name: "Changed thread",
-      thread_metadata: {
-        archived: true,
-        archive_timestamp: "2026-11-18T00:00:00Z",
-      },
-    });
+  it.each([
+    { channelType: 0, isPost: false },
+    { channelType: 15, isPost: true },
+    { channelType: 16, isPost: true },
+  ])(
+    "checks thread metadata under parent type $channelType",
+    async ({ channelType, isPost }) => {
+      const fixture = wire(
+        200,
+        0,
+        true,
+        {
+          id: "101",
+          parent_id: "800",
+          type: 11,
+          name: "Changed thread",
+          thread_metadata: {
+            archived: true,
+            archive_timestamp: "2026-11-18T00:00:00Z",
+          },
+        },
+        channelType
+      );
 
-    const result = await Effect.runPromise(
-      sourcePage(
-        { ...request, channelId: "101", reconciliation: { kind: "thread" } },
-        "invented",
-        fixture.fetch
-      )
-    );
+      const result = await Effect.runPromise(
+        sourcePage(
+          { ...request, channelId: "101", reconciliation: { kind: "thread" } },
+          "invented",
+          fixture.fetch
+        )
+      );
 
-    expect(result).toMatchObject({
-      reconciliation: {
-        kind: "thread",
-        thread: { id: "101", title: "Changed thread", archived: true },
-      },
-    });
-    expect(fixture.paths).toHaveLength(5);
-  });
+      expect(result).toMatchObject({
+        reconciliation: {
+          kind: "thread",
+          thread: {
+            id: "101",
+            title: "Changed thread",
+            archived: true,
+            isPost,
+          },
+        },
+      });
+      expect(fixture.paths).toHaveLength(5);
+    }
+  );
 
   it("confirms deletion only after access checks and a strict Unknown Message response", async () => {
     const fixture = wire(404, 10_008);

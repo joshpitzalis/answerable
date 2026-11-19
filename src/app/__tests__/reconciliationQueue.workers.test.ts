@@ -143,17 +143,38 @@ describe("reconciliation deadlines", () => {
         await scheduled.runtime.runPromise(
           store.startScheduled(project, followingDay)
         );
+        const committed = await scheduled.runtime.runPromise(store.messages);
+        await scheduled.runtime.runPromise(
+          store.saveReconciliation(
+            {
+              workId: "reconcile:message:101",
+              channelId: "800",
+              streamId: "800",
+              request: { kind: "message", messageId: "101" },
+            },
+            generation,
+            {
+              kind: "messages",
+              messages: [
+                { ...sourceMessage("101"), content: "Stale response" },
+              ],
+            },
+            "test",
+            followingDay
+          )
+        );
         expect(queued()).toStrictEqual([
           "reconcile:message:102",
           "reconcile:recent:800",
         ]);
-        expect(
-          storage.sql
+        expect({
+          messages: await scheduled.runtime.runPromise(store.messages),
+          nextDue: storage.sql
             .exec<{ next_due: number }>(
               "SELECT next_due FROM reconciliation_schedule"
             )
-            .one().next_due
-        ).toBe(followingDay);
+            .one().next_due,
+        }).toStrictEqual({ messages: committed, nextDue: followingDay });
       }
     );
   });

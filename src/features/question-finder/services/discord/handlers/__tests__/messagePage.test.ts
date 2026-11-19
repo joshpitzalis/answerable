@@ -120,6 +120,18 @@ describe("durable Harvest", () => {
     expect(result.map((message) => message.id)).toStrictEqual(["101"]);
   });
 
+  it("refuses an oversized response before mapping its messages", async () => {
+    await expect(
+      Effect.runPromise(
+        readMessagePage(
+          { ...request, limit: 1 },
+          "invented",
+          wire({ messages: [{ ...raw, id: "102" }, raw] })
+        )
+      )
+    ).rejects.toBeInstanceOf(DiscordFailed);
+  });
+
   it.each(["x66560", "66560x", "+66560", " 66560", "66560 "])(
     "refuses malformed permission bits %j through the typed access failure",
     async (permissions) => {
