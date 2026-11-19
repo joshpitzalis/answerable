@@ -155,8 +155,11 @@ describe("durable Harvest", () => {
       };
 
       await expect(
-        Effect.runPromise(messagePage(request, "invented", observed))
+        Effect.runPromise(
+          requireMessageAccess("800", "700", "invented", observed)
+        )
       ).rejects.toBeInstanceOf(DiscordFailed);
+      expect(paths).toHaveLength(2);
       expect(paths.some((path) => path.endsWith("/messages"))).toBeFalsy();
     }
   );

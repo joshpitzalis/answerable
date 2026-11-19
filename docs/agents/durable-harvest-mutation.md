@@ -1,6 +1,14 @@
 # Durable Harvest mutation review
 
-The complete changed-source run and survivor accounting are still in progress. Do not treat this note or a successful baseline as completion.
+The complete changed-source baseline finished; fresh replay and survivor accounting remain in progress. Exit zero does not resolve surviving or uncovered mutations.
+
+## Baseline and replay
+
+The completed `pnpm mutate:changed` run exited zero after 220 minutes 27 seconds: 3,197 outcomes comprise 1,540 Killed, 1,077 CompileError, 467 Survived, 91 NoCoverage, 12 Timeout, seven RuntimeError and three Ignored. Unchanged copies are saved as `reports/mutation/baseline-full.json`, `baseline-full.html`, `events-full/` and `reports/stryker-incremental-full.json`.
+
+Tests added while that sandbox ran do not retroactively strengthen its results. The fresh replay selects every Survived/NoCoverage outcome, all twelve timeouts and all 41 test kills whose reason mentions a timeout, because a host suspension makes their timing ambiguous. It also mutates every substantively changed or new source file in full. Source comparisons strip static imports to recognize mechanical value-file relocations; changed bodies force whole-file replay. Unchanged ranges are mapped by unique unchanged source context, with ambiguous mappings also forcing the whole file. The selection audit records source hashes and original IDs in `reports/mutation/replay-selection.json`; no recorded outcome is edited.
+
+The replay uses `force: true`, its own incremental file and separate JSON/HTML/event reports. It mutates source with the current complete test suite, never the generated Worker. Baseline and replay counts must remain separate because selected ranges can contain previously killed mutations as well as the intended unresolved ones.
 
 ## Build-only configuration
 
@@ -34,6 +42,7 @@ For #309, a valid invented local registry was paired temporarily with an empty f
 - Removing the fixture thread-title `slice(0, 100)` does not change any current fixture title: all fifteen messages have at most 96 characters. Optional thread property access can also be direct because all fifteen entries have a thread. Neither equivalence extends to different fixture data.
 - The pagination completion predicate's `oldest !== undefined` check can be always true with a positive page limit: empty pages already complete through the preceding short-page condition, and nonempty pages have an oldest ID. The comparison against the lower boundary remains required.
 - The `Effect.fn` operation label is diagnostic metadata; replacing it with an empty string does not change request, failure or retry behavior.
+- Storage operation labels populate `ProjectStorageError.operation`, which no production caller reads. The storage error's string tag likewise has no `catchTag`/tag-branch consumer; callers retain the same failing Effect and error class. These are scoped diagnostic equivalences, not permission to discard user-visible failure reasons.
 - Clearing the questions machine's reason on `loaded` → `refreshing` is redundant: every entry into loaded goes through `received`, which already clears it. The failed-state transition still must clear its error.
 - Overwrite-kind checks that become always true while retaining the exact role/member ID predicate are equivalent for supported Discord overwrites: [overwrite types are 0 for roles and 1 for members](https://github.com/discord/discord-api-docs/blob/main/developers/resources/channel.mdx#overwrite-object), and [snowflake identity is globally unique](https://github.com/discord/discord-api-docs/blob/main/developers/reference.mdx#snowflakes), with documented parent/child sharing such as the guild's everyone role. A user/member ID cannot select another role's overwrite. This does not waive membership, identity, mask or precedence mutations, and makes no claim about unsupported overwrite kinds or corrupt colliding identities.
 - Rejecting announcement-thread type 10 is equivalent within the supported source kinds. [Discord defines type 10 under announcement parent type 5](https://github.com/discord/discord-api-docs/blob/main/developers/resources/channel.mdx#channel-types), which `requireMessageAccess` already refuses; supported parent types are 0, 15 and 16. Public-thread type 11 and private-thread refusal remain tested. This is not a claim of announcement-Channel support.
@@ -54,6 +63,7 @@ For #309, a valid invented local registry was paired temporarily with an empty f
 - The legacy storage `fail` wrapper has no production or test caller; durable acquisition/processing failures use `retry` instead. Mutations confined to that unused wrapper do not change the assembled Harvest.
 - The schedule's nonfinite-due fallback is unreachable with the trusted finite clock and current writers: current status supplies finite cadence; incomplete acquisition, processing or reconciliation supplies queued work; failures supply persisted retries. Suspended/mismatched configuration returns earlier, and initial storage has no failure. Retain the fallback for malformed or legacy state; this equivalence claim does not extend to those unsupported inputs.
 - Always attempting the text-thread association UPDATE for a forum does not change valid stored data: its predicate requires the message to be in the parent Channel, while a forum starter is stored in the distinct thread Channel. The actual text-thread association remains required and tested.
+- `finishDiscovery` always has its parent scan on assembled paths: active discovery writes it atomically before finishing, archives require it, and starter/message work follows discovered threads. Reconciliation operates on retained threads; no writer deletes scans. The numbered migration introducing threads also introduced scans, and later migrations preserve both. Removing optional access there is equivalent for valid retained state, not for an artificially orphaned thread.
 - Reconciliation's `messages: [observed]` argument to `ingestMessage` can be empty because that single-message writer reads only `observedAt` and `policyRevision` from the page object; the observed message is passed separately. This does not apply to `ingestPage`, which iterates the page's messages.
 - The same unused page-message argument applies to the single forum-starter writer. The legacy Discord comparison's unequal-length branch can use `>=` instead of `>` because equal lengths have already selected the other ternary branch.
 - Removing `actor.stop()` after the awaited terminal `toPromise` in the native wake proof is equivalent for this non-cancellable function: installed XState's `createActor` implementation calls `_stopProcedure` on both `_terminate({status: 'done'})` and `_error`, before completing/rejecting observers. The explicit finally remains as defensive lifecycle cleanup.
@@ -83,7 +93,7 @@ IDs refer to the replacement run's saved events; source changes can renumber mut
 | Configuration #1180/#1182/#1183/#1185 | `harvestConfiguration.workers.test.ts`: old owner metadata cannot claim current work; trusted metadata can, suspension refuses it |
 | UI #2820/#2821 partial Refresh | `storedQuestionsMachine.test.ts`: refreshes partial state, retains rows while pending, then displays current state |
 | UI #2705 Project title | `ProjectQuestions.test.tsx`: Project heading and slug reach the view/read operation |
-| #267/#274 empty fixture IDs; #289 forced configuration refusal | RuntimeError: import-time configuration validation rejects these invalid configurations. Report separately from test kills. |
+| Baseline #264/#274/#289/#291/#296/#305/#306 | RuntimeError during application import: empty/forced-invalid IDs, forced duplicate refusal, or broken optional local-registry selection. These are detected startup failures, reported separately from test kills. |
 | Corpus #330/#331 digest encoding | `corpus.test.ts`: fixed SHA-256 vector for empty JSON evidence, including zero-prefixed bytes; independently checked with Python hashlib |
 | Access #723–#727 Channel type guard | `messagePage.test.ts`: allowed text/forum/media types and refused direct/voice/private-thread types before content fetch |
 | Content #1359/#1361 page stream identity | `pageAtomicity.workers.test.ts`: a mixed valid/wrong-stream page rolls back all content and its cursor |
@@ -160,6 +170,8 @@ IDs refer to the replacement run's saved events; source changes can renumber mut
 | Processing #3124/#3126/#3128 | The owner-answered fixture reports unanswered=0; stale processing that cannot commit never reports a kept result |
 | Stored failure-reason literals | Acquisition, rate-limit and Judge failures expose a nonempty safe explanation in saved failure rows, without leaking the original secret-bearing error |
 | Acquisition #2905/#2907/#2908/#2910/#2912 | The actual text acquisition workflow filters above-upper arrivals while retaining the exact captured boundary and completing that saved range |
+| Fresh replay #1440/#1441 | `textBoundary.workers.test.ts` adds the separate non-progressing text-page workflow path: retained content/cursor, nonempty saved failure and exact failed=1 diagnostic. Targeted mutation confirmation remains pending. |
+| Fresh replay #247 | Unsupported Channel tests now invoke `requireMessageAccess` directly and require refusal after two metadata reads. Calling `sourcePage` had allowed a later malformed forum response to mask removal of the access guard. Targeted mutation confirmation remains pending. |
 
 ## Interrupted run
 
