@@ -1,6 +1,6 @@
 # Durable Harvest mutation review
 
-The complete changed-source baseline finished; fresh replay and survivor accounting remain in progress. Exit zero does not resolve surviving or uncovered mutations.
+The changed-source baseline, fresh replay and behavioral confirmations finished. Timing-dependent outcomes still require their separate confirmation; exit zero alone does not resolve surviving or uncovered mutations.
 
 ## Baseline and replay
 
@@ -9,6 +9,12 @@ The completed `pnpm mutate:changed` run exited zero after 220 minutes 27 seconds
 Tests added while that sandbox ran do not retroactively strengthen its results. The fresh replay selects every Survived/NoCoverage outcome, all twelve timeouts and all 41 test kills whose reason mentions a timeout, because a host suspension makes their timing ambiguous. It also mutates every substantively changed or new source file in full. Source comparisons strip static imports to recognize mechanical value-file relocations; changed bodies force whole-file replay. Unchanged ranges are mapped by unique unchanged source context, with ambiguous mappings also forcing the whole file. The selection audit records source hashes and original IDs in `reports/mutation/replay-selection.json`; no recorded outcome is edited.
 
 The replay uses `force: true`, its own incremental file and separate JSON/HTML/event reports. It mutates source with the current complete test suite, never the generated Worker. Baseline and replay counts must remain separate because selected ranges can contain previously killed mutations as well as the intended unresolved ones.
+
+The fresh replay exited zero after 264 minutes 5 seconds: 1,588 outcomes comprise 979 Killed, 378 CompileError, 168 Survived, 25 NoCoverage and 38 Timeout. Forty of its Killed outcomes report a test timeout and are not treated as assertion detections. All 193 Survived/NoCoverage entries have individual dispositions in `reports/mutation/replay-ledger.json`, with source spans, replacements and hashes. The unchanged raw report is `reports/mutation/replay.json`.
+
+Forty behavioral gaps received regression assertions and a fresh confirmation at test checkpoint `23543c9`. All forty were killed by assertions, with exact original-to-confirmation matches in `behavior-confirmation-matches.json`. That run exited zero after 12 minutes 45 seconds: its 110 nearby mutants yielded 89 Killed, 17 CompileError and four Survived. The four survivors map to existing scoped equivalences (#840, #846, #1013 and #1285), recorded in `behavior-confirmation-remaining.json`. Vitest's inherited include arrays made this a full 500-test baseline, despite the intended narrower include list.
+
+The remaining timing confirmation selects all 38 Timeout and all 40 test-timeout Killed outcomes, preserving their original statuses. It uses the full suite, a ninety-second per-test limit and Stryker's sixty-second allowance plus three times baseline duration. Its selection, source checks and report hashes remain separate; no recorded outcome is edited.
 
 ## Build-only configuration
 
@@ -77,7 +83,7 @@ For #309, a valid invented local registry was paired temporarily with an empty f
 
 ## Current-run triage
 
-IDs refer to the replacement run's saved events; source changes can renumber mutants in the incremental replay. Added tests are passing ordinary checks but mutation kills remain unconfirmed until replay.
+Baseline IDs below describe the original gaps; source changes renumbered the fresh replay. The exact per-mutant ledger and confirmation matches above are authoritative. The forty fresh behavioral gaps are confirmed; timing-only results remain separate.
 
 | Mutants or seam | Response |
 | --- | --- |
@@ -174,27 +180,28 @@ IDs refer to the replacement run's saved events; source changes can renumber mut
 | Processing #3124/#3126/#3128 | The owner-answered fixture reports unanswered=0; stale processing that cannot commit never reports a kept result |
 | Stored failure-reason literals | Acquisition, rate-limit and Judge failures expose a nonempty safe explanation in saved failure rows, without leaking the original secret-bearing error |
 | Acquisition #2905/#2907/#2908/#2910/#2912 | The actual text acquisition workflow filters above-upper arrivals while retaining the exact captured boundary and completing that saved range |
-| Fresh replay #1440/#1441 | `textBoundary.workers.test.ts` adds the separate non-progressing text-page workflow path: retained content/cursor, nonempty saved failure and exact failed=1 diagnostic. Targeted mutation confirmation remains pending. |
-| Fresh replay #247 | Unsupported Channel tests now invoke `requireMessageAccess` directly and require refusal after two metadata reads. Calling `sourcePage` had allowed a later malformed forum response to mask removal of the access guard. Targeted mutation confirmation remains pending. |
-| Fresh replay #563/#566/#568 | Existing suspension/resume cases now require the immediate resumed alarm deadline. Merely checking for any alarm allowed the pre-commit recovery wake to mask missing durable schedule restoration. Targeted mutation confirmation remains pending. |
+| Fresh replay #1440/#1441 | `textBoundary.workers.test.ts` adds the separate non-progressing text-page workflow path: retained content/cursor, nonempty saved failure and exact failed=1 diagnostic. Confirmed by fresh mutation replay. |
+| Fresh replay #247 | Unsupported Channel tests now invoke `requireMessageAccess` directly and require refusal after two metadata reads. Calling `sourcePage` had allowed a later malformed forum response to mask removal of the access guard. Confirmed by fresh mutation replay. |
+| Fresh replay #563/#566/#568 | Existing suspension/resume cases now require the immediate resumed alarm deadline. Merely checking for any alarm allowed the pre-commit recovery wake to mask missing durable schedule restoration. Confirmed by fresh mutation replay. |
 | Fresh replay #228 timeout | A direct message-page test now refuses two individually valid messages when the requested limit is one. The timeout is not credited as a kill; confirmation with a larger allowance remains pending. |
-| Fresh replay #657 | Public storage activation without `beginCycle` cannot claim acquisition; starting the cycle makes the source claimable. The proof uses API-produced state and a positive control. Targeted mutation confirmation remains pending. |
-| Fresh replay #1309 | The existing component Refresh journey holds its reply and checks Refreshing plus a disabled control before releasing the new rows. This verifies `QuestionsView` busy-state wiring separately from the status component's prop tests. Targeted mutation confirmation remains pending. |
-| Fresh replay #350/#351/#352 | The existing injected-fetch metadata test covers text, forum and media parents and requires the corresponding non-post/post/post classification. Targeted mutation confirmation remains pending. |
-| Fresh replay #376 | An archive response missing `has_more` is refused, rather than silently declaring the archive exhausted. Targeted mutation confirmation remains pending. |
-| Fresh replay #1083 | The daily queue journey replays consumed work while siblings keep the generation active; the stale response cannot replace retained messages. Targeted mutation confirmation remains pending. |
-| Fresh replay #1256 | The existing native alarm observer explicitly requests a wake while paused and requires no transient write, not just a null alarm after cancellation. Targeted mutation confirmation remains pending. |
-| Fresh replay #770 | Completed forum discovery schedules recent-message reconciliation for the active thread, never the forum root. Targeted mutation confirmation remains pending. |
-| Fresh replay #1179/#1180/#1182 | Refresh during a real partial continuation preserves its schedule and manual cooldown; subsequent alarms complete that same cycle. Targeted mutation confirmation remains pending. |
+| Fresh replay #657 | Public storage activation without `beginCycle` cannot claim acquisition; starting the cycle makes the source claimable. The proof uses API-produced state and a positive control. Confirmed by fresh mutation replay. |
+| Fresh replay #1309 | The existing component Refresh journey holds its reply and checks Refreshing plus a disabled control before releasing the new rows. This verifies `QuestionsView` busy-state wiring separately from the status component's prop tests. Confirmed by fresh mutation replay. |
+| Fresh replay #350/#351/#352 | The existing injected-fetch metadata test covers text, forum and media parents and requires the corresponding non-post/post/post classification. Confirmed by fresh mutation replay. |
+| Fresh replay #376 | An archive response missing `has_more` is refused, rather than silently declaring the archive exhausted. Confirmed by fresh mutation replay. |
+| Fresh replay #1083 | The daily queue journey replays consumed work while siblings keep the generation active; the stale response cannot replace retained messages. Confirmed by fresh mutation replay. |
+| Fresh replay #1256 | The existing native alarm observer explicitly requests a wake while paused and requires no transient write, not just a null alarm after cancellation. Confirmed by fresh mutation replay. |
+| Fresh replay #770 | Completed forum discovery schedules recent-message reconciliation for the active thread, never the forum root. Confirmed by fresh mutation replay. |
+| Fresh replay #1179/#1180/#1182 | Refresh during a real partial continuation preserves its schedule and manual cooldown; subsequent alarms complete that same cycle. Confirmed by fresh mutation replay. |
 | Fresh replay #538 timeout | The stale-metadata claim proof now independently varies owner and Channel configuration. Full-suite mutation confirmation with a larger timeout allowance remains pending. |
-| Fresh replay #1276 | An unchanged active saved read must not replace the native alarm with a resume-recovery wake. Targeted mutation confirmation remains pending. |
-| Fresh replay #1282/#1283/#1287 | Adding a source after completed collection moves the native alarm from regular cadence to immediate work; suspension/resume also requires the exact restored deadline. Targeted mutation confirmation remains pending. |
-| Fresh replay #833/#898 | Real schema-five upgrades preserve acquisition failures without retry records, as written by `2a23640f` before scheduling existed; successful active discovery and starter collection must clear them. Targeted mutation confirmation remains pending. |
-| Fresh replay #838 | A configuration change advances the cycle; archive work cannot use the previous generation's retained active range. Targeted mutation confirmation remains pending. |
-| Fresh replay #1015/#1016/#1033 | A schema-eight snapshot may retain a removed source's older generation. Reading completed retained work must not invent an active cycle; a retained failure remains partial when a manual retry is queued within cooldown. Targeted mutation confirmation remains pending. |
-| Fresh replay #1396/#1407/#1423 | Actual reconciliation, archive, starter and comment acquisition journeys require successful funnel lines with `failed=0`. Targeted mutation confirmation remains pending. |
-| Fresh replay #1575 | The existing crash-before-activation proof now requires its recovery alarm thirty seconds in the future; merely checking that an alarm existed missed a past deadline. The after-activation crash still requires its immediate wake. Targeted mutation confirmation remains pending. |
-| Fresh replay #1608/#1610/#1614/#1615 | The existing held-IO concurrency journey checks that Refresh preserves the recovery wake, a duplicate alarm remains pending with the first runner, and only one acquisition (including discovery) occurs. Targeted mutation confirmation remains pending. |
+| Fresh replay #1276 | An unchanged active saved read must not replace the native alarm with a resume-recovery wake. Confirmed by fresh mutation replay. |
+| Fresh replay #1282/#1283/#1287 | Adding a source after completed collection moves the native alarm from regular cadence to immediate work; suspension/resume also requires the exact restored deadline. Confirmed by fresh mutation replay. |
+| Fresh replay #833/#898 | Real schema-five upgrades preserve acquisition failures without retry records, as written by `2a23640f` before scheduling existed; successful active discovery and starter collection must clear them. Confirmed by fresh mutation replay. |
+| Fresh replay #838 | A configuration change advances the cycle; archive work cannot use the previous generation's retained active range. Confirmed by fresh mutation replay. |
+| Fresh replay #1015/#1016/#1033 | A schema-eight snapshot may retain a removed source's older generation. Reading completed retained work must not invent an active cycle; a retained failure remains partial when a manual retry is queued within cooldown. Confirmed by fresh mutation replay. |
+| Fresh replay #1396/#1407/#1423 | Actual reconciliation, archive, starter and comment acquisition journeys require successful funnel lines with `failed=0`. Confirmed by fresh mutation replay. |
+| Fresh replay #1575 | The existing crash-before-activation proof now requires its recovery alarm thirty seconds in the future; merely checking that an alarm existed missed a past deadline. The after-activation crash still requires its immediate wake. Confirmed by fresh mutation replay. |
+| Fresh replay #1608/#1610/#1614/#1615 | The existing held-IO concurrency journey checks that Refresh preserves the recovery wake, a duplicate alarm remains pending with the first runner, and only one acquisition (including discovery) occurs. Confirmed by fresh mutation replay. |
+| Fresh replay #1470 | Timing confirmation exposed a processing-log ordinal gap. The existing diagnostic test now processes the second Channel after an empty first Channel and requires `channel=2`, retaining exact counts and privacy checks. Its small follow-up mutation confirmation remains pending. |
 
 ## Interrupted run
 

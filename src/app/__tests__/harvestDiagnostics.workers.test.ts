@@ -16,7 +16,7 @@ import {
 import { ProjectStorage } from "../../features/question-finder/services/projectStorage";
 import { harvestStoredProject } from "../../features/question-finder/workflows/harvestStoredProject";
 import { projectHarvestStub } from "../projectHarvest";
-import { discordPage, sourceMessage, textProject } from "./harvest.test-utils";
+import { sourceMessage, textProject } from "./harvest.test-utils";
 import { testClock } from "./scheduledHarvest.test-utils";
 
 describe("durable Harvest diagnostics", () => {
@@ -94,7 +94,14 @@ describe("durable Harvest diagnostics", () => {
   );
 
   it("logs a bounded numeric funnel and persisted retry delay without private values", async () => {
-    const project = textProject("diagnostics-secret-project");
+    const project = {
+      ...textProject("diagnostics-secret-project"),
+      channels: [
+        { id: "801", name: "secret-empty" },
+        { id: "800", name: "help" },
+      ],
+    };
+
     const stub = projectHarvestStub(env.PROJECT_HARVEST, project, "live");
     const lines: string[] = [];
     const time = { now: 2_000_000_000_000 };
@@ -103,11 +110,24 @@ describe("durable Harvest diagnostics", () => {
       const runtime = ManagedRuntime.make(
         Layer.mergeAll(
           ProjectStorage.layer(state.storage),
-          discordPage([
-            sourceMessage("101", "How can secret-content work?"),
-            sourceMessage("102", "A statement"),
-            sourceMessage("103", "Why fail?"),
-          ]),
+          Layer.succeed(
+            Discord,
+            Discord.of({
+              messagesSince: () =>
+                Effect.die("Legacy acquisition must not run"),
+              hasReplyFrom: () => Effect.die("No reply checks expected"),
+              sourcePage: (request) =>
+                Effect.succeed(
+                  request.channelId === "801"
+                    ? []
+                    : [
+                        sourceMessage("101", "How can secret-content work?"),
+                        sourceMessage("102", "A statement"),
+                        sourceMessage("103", "Why fail?"),
+                      ]
+                ),
+            })
+          ),
           Layer.succeed(
             Judge,
             Judge.of({
@@ -128,6 +148,7 @@ describe("durable Harvest diagnostics", () => {
       );
 
       try {
+        await harvestStoredProject(runtime, project, "live");
         const saved = await harvestStoredProject(runtime, project, "live");
         expect(saved.questions.map((row) => row.id)).toStrictEqual(["101"]);
         expect(saved.failedChannels).toMatchObject([
@@ -137,13 +158,15 @@ describe("durable Harvest diagnostics", () => {
           saved.failedChannels.map(({ reason }) => reason).join(" ")
         ).not.toMatch(/secret-token/u);
         expect(lines).toStrictEqual([
+          "harvest ingestion inserted=0 updated=0 unchanged=0",
+          "harvest acquisition channel=1 failed=0 pending=0",
           "harvest ingestion inserted=3 updated=0 unchanged=0",
-          "harvest acquisition channel=1 failed=0 pending=3",
+          "harvest acquisition channel=2 failed=0 pending=3",
           "harvest retry kind=processing attempts=1 delay_ms=1000",
-          "harvest channel=1 evaluated=3 questions=2 unanswered=2 kept=1 failed=1 pending=1",
+          "harvest channel=2 evaluated=3 questions=2 unanswered=2 kept=1 failed=1 pending=1",
         ]);
         expect(lines.join("\n")).not.toMatch(
-          /secret|Writer|Owner|help|800|700/u
+          /secret|Writer|Owner|help|800|801|700/u
         );
       } finally {
         await runtime.dispose();
