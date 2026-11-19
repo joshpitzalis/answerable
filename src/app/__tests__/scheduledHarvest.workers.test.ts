@@ -107,12 +107,13 @@ describe("scheduled Harvest", () => {
       const first = scheduled.alarm(project);
       await Effect.runPromise(Deferred.await(started));
       const during = await scheduled.read(project);
+      await scheduled.activate(project);
       let repeatedCompleted = false;
 
       const repeated = scheduled.alarm(project).then(() => {
         repeatedCompleted = true;
 
-        return;
+        return true;
       });
 
       await scheduled.request(project);

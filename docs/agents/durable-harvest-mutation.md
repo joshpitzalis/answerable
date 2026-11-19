@@ -80,6 +80,7 @@ For #309, a valid invented local registry was paired temporarily with an empty f
 - Initial reconciliation enqueue is repeated before any acquisition by `startScheduledBatch`, using retained activation time. Removing the first call changes no exposed saved result or eventual obligation, including delayed first wakes. A retry-cycle deadline cannot be in the future when the assembled scheduler starts work: its due check runs first, manual requests preserve the lower bound, and configuration changes clear the retry deadline.
 - `discordGet` attaches a parsed error code only for actual HTTP 404 responses. Therefore the reconciliation handler's remaining code-10008 check implies the status check on every supported failure path.
 - The committed fixture generates at most one reply per thread, so truncating it to a positive page limit is redundant. Its reply prose is sample data; owner-answer behavior uses the retained author identity. Neither observation applies to arbitrary production messages or a future multi-reply fixture.
+- Native Harvest and its scheduled runner both leave the optional actor clock undefined. Mutations that always choose the default clock therefore preserve production timing; custom simulated clocks are a test seam. This equivalence does not cover changing the twenty-second deadline or the actual completion transitions.
 
 ## Current-run triage
 
@@ -203,6 +204,7 @@ Baseline IDs below describe the original gaps; source changes renumbered the fre
 | Fresh replay #1608/#1610/#1614/#1615 | The existing held-IO concurrency journey checks that Refresh preserves the recovery wake, a duplicate alarm remains pending with the first runner, and only one acquisition (including discovery) occurs. Confirmed by fresh mutation replay. |
 | Fresh replay #1470 | Timing confirmation exposed a processing-log ordinal gap. The existing diagnostic test now processes the second Channel after an empty first Channel and requires `channel=2`, retaining exact counts and privacy checks. Its small follow-up mutation confirmation remains pending. |
 | Fresh replay #1496 | With a larger allowance, an empty already-current transition eventually returns through the twenty-second outer deadline. The completed-Harvest test now uses an unadvanced simulated clock, requiring completion independently of that deadline. Its small follow-up confirmation remains pending. |
+| Fresh replay #1569/#1574 | The held-IO concurrency journey now repeats activation and requires the running batch's recovery wake to remain intact. Repeated activation must not replace it with an already-due alarm. Its small follow-up confirmation remains pending. |
 
 ## Interrupted run
 
