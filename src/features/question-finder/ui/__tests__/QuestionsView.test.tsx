@@ -253,6 +253,47 @@ describe("the questions headline", () => {
     expect(screen.getByText(/Last complete collection:/u)).toBeTruthy();
   });
 
+  it("clears the unavailable status while a second Refresh is pending", async () => {
+    const loaded = reply({});
+    let attempts = 0;
+    let finishRefresh: ((value: StoredQuestionsReply) => void) | undefined;
+
+    // oxlint-disable-next-line promise/avoid-new -- Keep the second request pending to observe its status before completion clears the error.
+    const pending = new Promise<StoredQuestionsReply>((resolve) => {
+      finishRefresh = resolve;
+    });
+
+    render(
+      <QuestionsView
+        title="XState Questions"
+        machine={createQuestionsMachine({
+          load: () => Promise.resolve(loaded),
+          activate: () => Promise.resolve(loaded),
+          refresh: () => {
+            attempts += 1;
+
+            return attempts === 1
+              ? Promise.reject(new Error("Connection interrupted"))
+              : pending;
+          },
+        })}
+      />
+    );
+    await screen.findByText("Up to date");
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await screen.findByText("Update unavailable");
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await screen.findByText("Refreshing");
+    expect(screen.queryByText("Update unavailable")).toBeNull();
+    expect(screen.queryByText("Connection interrupted")).toBeNull();
+    await act(() => {
+      finishRefresh?.(loaded);
+
+      return pending;
+    });
+    await screen.findByText("Up to date");
+  });
+
   it("keeps the existing table mounted when Refresh fails", async () => {
     const loaded = reply({});
     render(
