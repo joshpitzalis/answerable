@@ -29,6 +29,7 @@ import { beginCycle, claimAcquisition, claimProcessing } from "./cycle";
 import { nextForumRequest, saveForumStarter, saveThreadPage } from "./forums";
 import {
   completeProcessing,
+  countPendingCandidates,
   invalidateProcessingContext,
   pendingCandidates,
   reprocessCandidates,
@@ -63,6 +64,20 @@ const attempt = <A>(operation: string, body: () => A) =>
   Effect.try({
     try: body,
     catch: (cause) => new ProjectStorageError({ operation, cause }),
+  });
+
+const ingestionAttempt = <A>(
+  operation: string,
+  body: (counts: { -readonly [K in keyof IngestionCounts]: number }) => A
+) =>
+  Effect.gen(function* () {
+    const counts = { inserted: 0, updated: 0, unchanged: 0 };
+    const result = yield* attempt(operation, () => body(counts));
+    yield* Effect.logInfo(
+      `harvest ingestion inserted=${counts.inserted} updated=${counts.updated} unchanged=${counts.unchanged}`
+    );
+
+    return result;
   });
 
 export class ProjectStorage extends Context.Service<
@@ -150,6 +165,9 @@ export class ProjectStorage extends Context.Service<
       page: PageIngestion
     ) => Effect.Effect<IngestionCounts, ProjectStorageError>;
     readonly messages: Effect.Effect<StoredMessage[], ProjectStorageError>;
+    readonly pendingCount: (
+      channelIds: readonly string[]
+    ) => Effect.Effect<number, ProjectStorageError>;
     readonly pending: (
       channelIds: readonly string[],
       limit?: number
@@ -194,14 +212,15 @@ export class ProjectStorage extends Context.Service<
               }),
           }),
         saveReconciliation: (work, generation, result, policyRevision, at) =>
-          attempt("saveReconciliation", () =>
+          ingestionAttempt("saveReconciliation", (counts) =>
             saveReconciliation(
               storage,
               work,
               generation,
               result,
               policyRevision,
-              at
+              at,
+              counts
             )
           ),
         saveThreadMessages: (
@@ -211,14 +230,15 @@ export class ProjectStorage extends Context.Service<
           policyRevision,
           at
         ) =>
-          attempt("saveThreadMessages", () =>
+          ingestionAttempt("saveThreadMessages", (counts) =>
             saveThreadMessages(
               storage,
               thread,
               generation,
               messages,
               policyRevision,
-              at
+              at,
+              counts
             )
           ),
         schedule: attempt("schedule", () => readSchedule(storage.sql)),
@@ -237,7 +257,15 @@ export class ProjectStorage extends Context.Service<
         retry: (failure) =>
           Clock.currentTimeMillis.pipe(
             Effect.flatMap((at) =>
-              attempt("retry", () => recordRetry(storage, failure, at))
+              attempt("retry", () => recordRetry(storage, failure, at)).pipe(
+                Effect.flatMap((recorded) =>
+                  recorded === undefined
+                    ? Effect.void
+                    : Effect.logInfo(
+                        `harvest retry kind=${failure.kind} attempts=${recorded.attempts} delay_ms=${recorded.delayMs}`
+                      )
+                )
+              )
             )
           ),
         forumRequest: (channelId, generation) =>
@@ -259,14 +287,15 @@ export class ProjectStorage extends Context.Service<
           policyRevision,
           at
         ) =>
-          attempt("saveForumStarter", () =>
+          ingestionAttempt("saveForumStarter", (counts) =>
             saveForumStarter(
               storage,
               channelId,
               generation,
               message,
               policyRevision,
-              at
+              at,
+              counts
             )
           ),
         beginCycle: attempt("beginCycle", () => beginCycle(storage.sql)),
@@ -321,6 +350,10 @@ export class ProjectStorage extends Context.Service<
         ingestPage: (page) =>
           attempt("ingestPage", () => ingestPage(storage, page)),
         messages: attempt("messages", () => readMessages(storage.sql)),
+        pendingCount: (ids) =>
+          attempt("pendingCount", () =>
+            countPendingCandidates(storage.sql, ids)
+          ),
         pending: (ids, limit = 20) =>
           Clock.currentTimeMillis.pipe(
             Effect.flatMap((at) =>

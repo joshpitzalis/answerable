@@ -128,4 +128,27 @@ describe("Project storage in the Workers runtime", () => {
     });
     await expect(stub.readQuestions()).resolves.toStrictEqual([question]);
   });
+
+  it("a version-one database upgrades through every released migration after reconstruction", async () => {
+    const stub = projectHarvestStub(
+      env.PROJECT_HARVEST,
+      { id: "upgrade-from-one" },
+      "fixture"
+    );
+
+    await runInDurableObject(stub, async (_instance, state) => {
+      await state.storage.deleteAll();
+      migrateProjectStorage(state.storage, projectMigrations.slice(0, 1));
+    });
+    await stub.saveQuestions([question]);
+    await evictDurableObject(stub);
+    await expect(stub.readQuestions()).resolves.toStrictEqual([question]);
+    await runInDurableObject(stub, (_instance, state) => {
+      expect(
+        state.storage.sql
+          .exec<{ version: number }>("SELECT version FROM schema_version")
+          .one().version
+      ).toBe(9);
+    });
+  });
 });

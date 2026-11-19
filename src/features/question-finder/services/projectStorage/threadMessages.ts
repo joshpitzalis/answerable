@@ -1,4 +1,7 @@
-import type { SourceMessage } from "../../domain/harvest.values";
+import type {
+  IngestionCounts,
+  SourceMessage,
+} from "../../domain/harvest.values";
 import { compareSnowflakes } from "../../domain/harvest.values";
 import { advanceMessagePage } from "../../domain/pagination.rules";
 import type { DiscordThread } from "../../domain/thread.values";
@@ -15,7 +18,8 @@ export const saveThreadMessages = (
   generation: number,
   messages: readonly SourceMessage[],
   policyRevision: string,
-  at: number
+  at: number,
+  counts: { -readonly [K in keyof IngestionCounts]: number }
 ): boolean =>
   storage.transactionSync(() => {
     const { sql } = storage;
@@ -56,12 +60,14 @@ export const saveThreadMessages = (
         continue;
       }
 
-      ingestMessage(sql, message, {
-        messages,
-        progress: next,
-        observedAt: at,
-        policyRevision,
-      });
+      counts[
+        ingestMessage(sql, message, {
+          messages,
+          progress: next,
+          observedAt: at,
+          policyRevision,
+        })
+      ] += 1;
     }
 
     sql.exec(

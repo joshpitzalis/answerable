@@ -56,6 +56,102 @@ describe("the questions headline", () => {
 
   afterEach(cleanup);
 
+  it("shows loading only until the first saved read settles", async () => {
+    render(viewOf(reply({})));
+    expect(screen.getByText("Loading saved questions…")).toBeTruthy();
+    await screen.findByText("Up to date");
+    expect(screen.queryByText("Loading saved questions…")).toBeNull();
+  });
+
+  it("offers Retry after the first read fails without inventing a saved status", async () => {
+    const loaded = reply({});
+    let reads = 0;
+    render(
+      <QuestionsView
+        title="XState Questions"
+        machine={createQuestionsMachine({
+          load: () => {
+            reads += 1;
+
+            return reads === 1
+              ? Promise.reject(new Error("Read unavailable"))
+              : Promise.resolve(loaded);
+          },
+          activate: () => Promise.resolve(loaded),
+          refresh: () => Promise.resolve(loaded),
+        })}
+      />
+    );
+    await screen.findByText("Questions could not be loaded");
+    expect(screen.getByText("Read unavailable")).toBeTruthy();
+    expect(screen.queryByText(/Last complete collection:/u)).toBeNull();
+    expect(screen.queryByText("Up to date")).toBeNull();
+    expect(screen.queryByText("Loading saved questions…")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await screen.findByText("Up to date");
+    expect(reads).toBe(2);
+  });
+
+  it("refreshes the visible rows and Channel filter choices", async () => {
+    const loaded = reply({});
+
+    const refreshed = reply({
+      questions: [
+        {
+          id: "101",
+          project: "example",
+          channel: { id: "800", name: "Fresh channel" },
+          name: "Writer",
+          comments: 0,
+          question: "How does the new collection appear?",
+          isPost: false,
+          avatarUrl: null,
+          dateAsked: new Date("2026-11-01T00:00:00Z"),
+          url: "https://discord.com/channels/700/800/101",
+        },
+      ],
+    });
+
+    render(
+      <QuestionsView
+        title="XState Questions"
+        machine={createQuestionsMachine({
+          load: () => Promise.resolve(loaded),
+          activate: () => Promise.resolve(loaded),
+          refresh: () => Promise.resolve(refreshed),
+        })}
+      />
+    );
+    await screen.findByText("Up to date");
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await screen.findByText("How does the new collection appear?");
+    fireEvent.click(screen.getByRole("combobox", { name: "Search" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Channel" }));
+    fireEvent.click(await screen.findByRole("combobox", { name: "Value" }));
+    await expect(
+      screen.findByRole("option", { name: "Fresh channel" })
+    ).resolves.toBeTruthy();
+  });
+
+  it("shows time of day for distinct completion and attempt timestamps", async () => {
+    render(
+      viewOf(
+        reply({
+          harvest: {
+            ...reply({}).harvest,
+            lastCompleteSuccess: Date.parse("2026-11-18T09:15:00Z"),
+            lastAttempt: Date.parse("2026-11-18T12:45:00Z"),
+          },
+        })
+      )
+    );
+    const complete = await screen.findByText(/Last complete collection:/u);
+    expect(complete.textContent).toMatch(/\d{1,2}:\d{2}/u);
+    expect(screen.getByText(/Last attempt:/u).textContent).toMatch(
+      /\d{1,2}:\d{2}/u
+    );
+  });
+
   it("shows the median statistic beside the table heading", async () => {
     render(
       viewOf(
@@ -157,6 +253,7 @@ describe("the questions headline", () => {
     const search = screen.getByRole("combobox", { name: "Search" });
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     await screen.findByText("Collection status could not be updated");
+    expect(screen.getByText("Update unavailable")).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "Search" })).toBe(search);
     expect(screen.getByText("Connection interrupted")).toBeTruthy();
     expect(screen.getByText(/Last complete collection:/u)).toBeTruthy();

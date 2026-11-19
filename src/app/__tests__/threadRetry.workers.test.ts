@@ -1,11 +1,13 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
 import { env } from "cloudflare:workers";
+import { Effect, Logger } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { Corpus } from "../../features/question-finder/services/corpus";
 import { Discord } from "../../features/question-finder/services/discord";
 import { Judge } from "../../features/question-finder/services/judge";
 import { ProjectStorage } from "../../features/question-finder/services/projectStorage";
+import { acquireStoredPage } from "../../features/question-finder/workflows/acquireStoredPage";
 import {
   harvestStoredProject,
   requestStoredHarvest,
@@ -13,8 +15,89 @@ import {
 import { projectHarvestStub } from "../projectHarvest";
 import { forumThread, forumWire } from "./forum.test-utils";
 import { textProject, withHarvestRuntime } from "./harvest.test-utils";
+import {
+  at,
+  reply,
+  thread,
+  withTrackedThread,
+} from "./threadWriter.test-utils";
 
 describe("thread retry scheduling", () => {
+  it("records a partial retry when a thread page does not advance its cursor", async () => {
+    const project = textProject("nonprogress-thread-workflow");
+    await withTrackedThread(
+      project.id,
+      async (scheduled, storage, generation) => {
+        const store = await scheduled.runtime.runPromise(ProjectStorage);
+        await scheduled.runtime.runPromise(
+          store.saveThreadPage(
+            "800",
+            generation,
+            { scope: "archive", threads: [], hasMore: false, isForum: true },
+            at
+          )
+        );
+        await scheduled.runtime.runPromise(
+          store.saveForumStarter("800", generation, reply("101"), "test", at)
+        );
+        storage.sql.exec(
+          "UPDATE fetch_progress SET seeded=1, completed_boundary='100', upper_boundary='200', before_id='151' WHERE stream_id='101'"
+        );
+        const before = await scheduled.runtime.runPromise(store.messages);
+        const lines: string[] = [];
+
+        await scheduled.runtime.runPromise(
+          acquireStoredPage(project, "test").pipe(
+            Effect.provideService(
+              Discord,
+              Discord.of({
+                messagesSince: () => Effect.die("legacy"),
+                hasReplyFrom: () => Effect.die("legacy"),
+                sourcePage: () =>
+                  Effect.succeed({ thread, messages: [reply("151")] }),
+              })
+            ),
+            Effect.provide(
+              Logger.layer([
+                Logger.make(({ message }) => {
+                  lines.push(String(message));
+                }),
+              ])
+            )
+          )
+        );
+        expect(lines).toStrictEqual([
+          "harvest ingestion inserted=0 updated=0 unchanged=0",
+          "harvest retry kind=acquisition attempts=1 delay_ms=1000",
+          "harvest acquisition channel=1 failed=1 pending=0",
+        ]);
+        await expect(
+          scheduled.runtime.runPromise(store.read(project))
+        ).resolves.toMatchObject({
+          harvest: { status: "partial" },
+          failedChannels: [{ name: "help" }],
+        });
+        await expect(
+          scheduled.runtime.runPromise(store.messages)
+        ).resolves.toStrictEqual(before);
+        await expect(
+          scheduled.runtime.runPromise(store.progress("101"))
+        ).resolves.toMatchObject({
+          completedBoundary: "100",
+          upperBoundary: "200",
+          before: "151",
+        });
+        expect(
+          storage.sql
+            .exec<{ work_id: string; attempts: number; next_due: number }>(
+              "SELECT work_id, attempts, next_due FROM harvest_retries"
+            )
+            .toArray()
+        ).toStrictEqual([{ work_id: "101", attempts: 1, next_due: at + 1000 }]);
+      }
+    );
+  });
+
   it("retains saved replies and progress when a tracked thread disappears", async () => {
     const project = textProject("thread-missing");
     const stub = projectHarvestStub(env.PROJECT_HARVEST, project, "live");

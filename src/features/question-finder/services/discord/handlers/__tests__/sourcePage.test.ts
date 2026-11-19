@@ -51,6 +51,69 @@ const wire =
   };
 
 describe("forum discovery boundary", () => {
+  it("refuses another Channel's thread before requesting its messages", async () => {
+    const paths: string[] = [];
+    const metadata = wire({ threads: [] });
+
+    const fetch: typeof globalThis.fetch = (input, init) => {
+      paths.push(new URL(String(input)).pathname);
+
+      return metadata(input, init);
+    };
+
+    await expect(
+      Effect.runPromise(
+        sourcePage(
+          {
+            ...request,
+            forum: {
+              kind: "messages",
+              before: null,
+              thread: {
+                id: "101",
+                parentChannelId: "801",
+                title: "Another Channel's question",
+                starterId: "101",
+                archived: false,
+                archiveTimestamp: "2026-11-01T00:00:00Z",
+                isPost: true,
+              },
+            },
+          },
+          "invented",
+          fetch
+        )
+      )
+    ).rejects.toBeInstanceOf(DiscordFailed);
+    expect(paths).toHaveLength(4);
+  });
+
+  it.each(["x101", "101x", "0101", "0", ""])(
+    "refuses the entire malformed thread ID %j",
+    async (id) => {
+      await expect(
+        Effect.runPromise(
+          sourcePage(
+            request,
+            "invented",
+            wire({ threads: [{ ...thread, id }] })
+          )
+        )
+      ).rejects.toBeInstanceOf(DiscordFailed);
+    }
+  );
+
+  it.each(["1", "10", "101"])(
+    "accepts a complete nonzero decimal thread ID %j",
+    async (id) => {
+      const result = await Effect.runPromise(
+        sourcePage(request, "invented", wire({ threads: [{ ...thread, id }] }))
+      );
+
+      expect(result).toMatchObject({ threads: [{ id }] });
+    }
+  );
+
   it("retains only configured-parent public threads from the guild-wide active list", async () => {
     const result = await Effect.runPromise(
       sourcePage(

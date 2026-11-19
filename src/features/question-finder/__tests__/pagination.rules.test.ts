@@ -35,6 +35,60 @@ const messages = (...ids: string[]) =>
   }));
 
 describe("message range progress", () => {
+  it("completes a full continuation that reaches the previous lower boundary exactly", () => {
+    expect(
+      advanceMessagePage(
+        { ...progress, upperBoundary: "101", before: "99" },
+        messages("10", "9"),
+        2,
+        2,
+        2
+      )
+    ).toMatchObject({
+      completedBoundary: "101",
+      upperBoundary: null,
+      before: null,
+      generation: 2,
+      lastCompletedAt: 2,
+    });
+  });
+
+  it("completes an empty continuation at its captured upper boundary", () => {
+    expect(
+      advanceMessagePage(
+        { ...progress, upperBoundary: "101", before: "99" },
+        [],
+        2,
+        2,
+        50
+      )
+    ).toMatchObject({
+      completedBoundary: "101",
+      upperBoundary: null,
+      before: null,
+      generation: 2,
+      lastCompletedAt: 2,
+    });
+  });
+
+  it("does not regress the completed boundary when a full page is entirely older", () => {
+    expect(
+      advanceMessagePage(
+        { ...progress, completedBoundary: "101" },
+        messages("99", "98"),
+        2,
+        2,
+        2
+      )
+    ).toMatchObject({
+      completedBoundary: "101",
+      upperBoundary: null,
+      before: null,
+      generation: 2,
+      lastCompletedAt: 2,
+    });
+  });
+
   it("orders unequal-length IDs and preserves a completed boundary across overlapping full pages", () => {
     const first = advanceMessagePage(progress, messages("101", "99"), 2, 2, 2);
     expect(first).toMatchObject({

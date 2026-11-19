@@ -2,6 +2,8 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { DiscordFailed } from "../../lib/errors";
+import { readMessagePage } from "../messagePage";
+import { requireMessageAccess } from "../readAccess";
 import { sourcePage as messagePage } from "../sourcePage";
 
 const request = {
@@ -26,9 +28,15 @@ const wire =
     flags = 262_144,
     messages = [raw],
     overwrites = [],
+    channelType = 0,
+    channelId = "800",
+    guildId = "700",
   }: {
     permissions?: string;
     flags?: number;
+    channelType?: number;
+    channelId?: string;
+    guildId?: string;
     messages?: readonly object[];
     overwrites?: readonly {
       id: string;
@@ -57,9 +65,9 @@ const wire =
     if (path.endsWith("/channels/800")) {
       return Promise.resolve(
         Response.json({
-          id: "800",
-          guild_id: "700",
-          type: 0,
+          id: channelId,
+          guild_id: guildId,
+          type: channelType,
           permission_overwrites: overwrites,
         })
       );
@@ -69,6 +77,90 @@ const wire =
   };
 
 describe("durable Harvest", () => {
+  it.each([{ channelId: "801" }, { guildId: "701" }])(
+    "refuses foreign Channel metadata before reading messages: %j",
+    async (identity) => {
+      const paths: string[] = [];
+      const fetch = wire(identity);
+
+      const observed: typeof globalThis.fetch = (input, init) => {
+        paths.push(new URL(String(input)).pathname);
+
+        return fetch(input, init);
+      };
+
+      await expect(
+        Effect.runPromise(messagePage(request, "invented", observed))
+      ).rejects.toBeInstanceOf(DiscordFailed);
+      expect(paths).toHaveLength(2);
+      expect(paths.some((path) => path.endsWith("/messages"))).toBeFalsy();
+    }
+  );
+
+  it("sends the bounded page size and continuation to Discord", async () => {
+    const urls: string[] = [];
+
+    const fetch: typeof globalThis.fetch = (input) => {
+      urls.push(String(input));
+
+      return Promise.resolve(Response.json([raw]));
+    };
+
+    const result = await Effect.runPromise(
+      readMessagePage(
+        { ...request, limit: 2, before: "103" },
+        "invented",
+        fetch
+      )
+    );
+
+    expect(urls).toStrictEqual([
+      "https://discord.com/api/v9/channels/800/messages?limit=2&before=103",
+    ]);
+    expect(result.map((message) => message.id)).toStrictEqual(["101"]);
+  });
+
+  it.each(["x66560", "66560x", "+66560", " 66560", "66560 "])(
+    "refuses malformed permission bits %j through the typed access failure",
+    async (permissions) => {
+      await expect(
+        Effect.runPromise(
+          messagePage(request, "invented", wire({ permissions }))
+        )
+      ).rejects.toBeInstanceOf(DiscordFailed);
+    }
+  );
+
+  it.each([0, 15, 16])(
+    "accepts supported public Channel type %i",
+    async (channelType) => {
+      await expect(
+        Effect.runPromise(
+          requireMessageAccess("800", "700", "invented", wire({ channelType }))
+        )
+      ).resolves.toBe(channelType);
+    }
+  );
+
+  it.each([1, 2, 12])(
+    "refuses unsupported Channel type %i before reading content",
+    async (channelType) => {
+      const paths: string[] = [];
+      const fetch = wire({ channelType });
+
+      const observed: typeof globalThis.fetch = (input, init) => {
+        paths.push(new URL(String(input)).pathname);
+
+        return fetch(input, init);
+      };
+
+      await expect(
+        Effect.runPromise(messagePage(request, "invented", observed))
+      ).rejects.toBeInstanceOf(DiscordFailed);
+      expect(paths.some((path) => path.endsWith("/messages"))).toBeFalsy();
+    }
+  );
+
   it("refuses missing history permission instead of treating Discord's empty reply as complete", async () => {
     await expect(
       Effect.runPromise(
@@ -92,6 +184,7 @@ describe("durable Harvest", () => {
           messages: [
             {
               ...raw,
+              author: { ...raw.author, avatar: "invented-avatar" },
               webhook_id: "901",
               edited_timestamp: "2026-11-02T00:00:00Z",
             },
@@ -108,7 +201,8 @@ describe("durable Harvest", () => {
         threadId: null,
         authorId: "900",
         authorName: "Writer",
-        authorAvatarUrl: null,
+        authorAvatarUrl:
+          "https://cdn.discordapp.com/avatars/900/invented-avatar.png?size=64",
         authorIsBot: false,
         authorIsWebhook: true,
         content: "How?",
@@ -169,6 +263,10 @@ describe("durable Harvest", () => {
   it.each([
     { ...raw, author: { username: "Missing ID" } },
     { ...raw, id: "not-a-snowflake" },
+    { ...raw, id: "x101" },
+    { ...raw, id: "101x" },
+    { ...raw, id: "0101" },
+    { ...raw, id: "0" },
     { ...raw, timestamp: "not-a-date" },
     { ...raw, channel_id: "another-channel" },
   ])("rejects a whole malformed page before ingestion", async (invalid) => {

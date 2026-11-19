@@ -58,7 +58,7 @@ export const acquireStoredPage = (project: Project, policyRevision: string) =>
           at
         );
 
-        return;
+        return false;
       }
 
       if ("messages" in page) {
@@ -78,7 +78,7 @@ export const acquireStoredPage = (project: Project, policyRevision: string) =>
           );
         }
 
-        return;
+        return false;
       }
 
       if ("threads" in page) {
@@ -97,7 +97,7 @@ export const acquireStoredPage = (project: Project, policyRevision: string) =>
           );
         }
 
-        return;
+        return false;
       }
 
       if ("starter" in page) {
@@ -109,7 +109,7 @@ export const acquireStoredPage = (project: Project, policyRevision: string) =>
           at
         );
 
-        return;
+        return false;
       }
 
       const messages = page;
@@ -142,7 +142,7 @@ export const acquireStoredPage = (project: Project, policyRevision: string) =>
           reason: "Discord pagination did not advance",
         });
 
-        return;
+        return true;
       }
 
       const counts = yield* store.ingestPage({
@@ -156,28 +156,43 @@ export const acquireStoredPage = (project: Project, policyRevision: string) =>
       yield* Effect.logInfo(
         `harvest ingestion inserted=${counts.inserted} updated=${counts.updated} unchanged=${counts.unchanged}`
       );
+
+      return false;
     });
 
-    yield* acquire.pipe(
+    const failed = yield* acquire.pipe(
       Effect.catchTag("DiscordFailed", () =>
-        store.retry({
-          kind: "acquisition",
-          workId,
-          channelId: turn.channelId,
-          generation: turn.generation,
-          reason: "Discord could not be read",
-        })
+        store
+          .retry({
+            kind: "acquisition",
+            workId,
+            channelId: turn.channelId,
+            generation: turn.generation,
+            reason: "Discord could not be read",
+          })
+          .pipe(Effect.as(true))
       ),
       Effect.catchTag("DiscordRateLimited", (failure) =>
-        store.retry({
-          kind: "acquisition",
-          workId,
-          channelId: turn.channelId,
-          generation: turn.generation,
-          reason: "Discord is rate-limited",
-          retryAfterMs: failure.retryAfterMs,
-          global: failure.global,
-        })
+        store
+          .retry({
+            kind: "acquisition",
+            workId,
+            channelId: turn.channelId,
+            generation: turn.generation,
+            reason: "Discord is rate-limited",
+            retryAfterMs: failure.retryAfterMs,
+            global: failure.global,
+          })
+          .pipe(Effect.as(true))
       )
+    );
+
+    const channel =
+      project.channels.findIndex((item) => item.id === turn.channelId) + 1;
+
+    const pending = yield* store.pendingCount([turn.channelId]);
+
+    yield* Effect.logInfo(
+      `harvest acquisition channel=${channel} failed=${Number(failed)} pending=${pending}`
     );
   });

@@ -50,24 +50,31 @@ export const processCandidate = (
       createdAt: new Date(candidate.message.createdAt),
     };
 
+    if (!looksLikeAQuestion(message)) {
+      yield* store.complete(candidate, null);
+
+      return "ignored";
+    }
+
     if (
-      !looksLikeAQuestion(message) ||
-      (mode === "fixture" &&
-        candidate.replyAuthors?.includes(project.ownerName))
+      mode === "fixture" &&
+      candidate.replyAuthors?.includes(project.ownerName)
     ) {
       yield* store.complete(candidate, null);
 
-      return;
+      return "answered";
     }
 
     const verdict = yield* Judge.use((judge) =>
       judge.answerable(message.content, posts)
     );
 
-    yield* store.complete(
+    const committed = yield* store.complete(
       candidate,
       verdict.answerable ? toRow(message, project, channel) : null
     );
+
+    return committed && verdict.answerable ? "kept" : "rejected";
   }).pipe(
     Effect.catchTag("JudgeFailed", () =>
       ProjectStorage.use((store) =>
@@ -78,6 +85,6 @@ export const processCandidate = (
           generation: candidate.generation,
           reason: "Saved messages could not be judged",
         })
-      )
+      ).pipe(Effect.as("failed"))
     )
   );

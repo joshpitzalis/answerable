@@ -24,11 +24,20 @@ const request = {
   reconciliation: { kind: "message", messageId: "101" } as const,
 };
 
+const message = {
+  id: "101",
+  channel_id: "800",
+  content: "Where is the saved answer?",
+  timestamp: "2026-11-01T00:00:00Z",
+  author: { id: "500", username: "Example writer" },
+};
+
 const wire = (
   status: number,
   code: number,
   accessible = true,
-  data?: ThreadFixture
+  data?: ThreadFixture | typeof message | readonly (typeof message)[],
+  channelType = 0
 ) => {
   const paths: string[] = [];
 
@@ -42,7 +51,12 @@ const wire = (
       ["/guilds/700/members/600", { roles: [] }],
       [
         "/channels/800",
-        { id: "800", guild_id: "700", type: 0, permission_overwrites: [] },
+        {
+          id: "800",
+          guild_id: "700",
+          type: channelType,
+          permission_overwrites: [],
+        },
       ],
     ]);
 
@@ -63,6 +77,120 @@ const wire = (
 };
 
 describe("known-message reconciliation", () => {
+  it.each([
+    { channelId: "800", channelType: 0 },
+    { channelId: "101", channelType: 15 },
+  ])(
+    "reads recent messages from $channelId after checking its parent access",
+    async ({ channelId, channelType }) => {
+      const fixture = wire(
+        200,
+        0,
+        true,
+        [{ ...message, channel_id: channelId }],
+        channelType
+      );
+
+      await expect(
+        Effect.runPromise(
+          sourcePage(
+            { ...request, channelId, reconciliation: { kind: "recent" } },
+            "invented",
+            fixture.fetch
+          )
+        )
+      ).resolves.toMatchObject({
+        reconciliation: {
+          kind: "messages",
+          messages: [{ id: "101", channelId, parentChannelId: "800" }],
+        },
+      });
+      expect(fixture.paths).toHaveLength(5);
+      expect(fixture.paths.at(-1)).toBe(`/channels/${channelId}/messages`);
+    }
+  );
+
+  it("returns the requested known message after checking access", async () => {
+    const fixture = wire(200, 0, true, message);
+
+    await expect(
+      Effect.runPromise(sourcePage(request, "invented", fixture.fetch))
+    ).resolves.toMatchObject({
+      reconciliation: {
+        kind: "messages",
+        messages: [
+          {
+            id: "101",
+            channelId: "800",
+            parentChannelId: "800",
+            content: "Where is the saved answer?",
+          },
+        ],
+      },
+    });
+  });
+
+  it.each([{ id: "102" }, { channel_id: "801" }])(
+    "refuses a known message with another identity: %j",
+    async (change) => {
+      const fixture = wire(200, 0, true, { ...message, ...change });
+
+      await expect(
+        Effect.runPromise(sourcePage(request, "invented", fixture.fetch))
+      ).rejects.toBeInstanceOf(DiscordFailed);
+    }
+  );
+
+  it.each([{ id: "102" }, { parent_id: "801" }, { type: 12 }])(
+    "refuses foreign or private thread metadata",
+    async (change) => {
+      const fixture = wire(200, 0, true, {
+        id: "101",
+        parent_id: "800",
+        type: 11,
+        name: "Thread",
+        thread_metadata: {
+          archived: false,
+          archive_timestamp: "2026-11-01T00:00:00Z",
+        },
+        ...change,
+      });
+
+      await expect(
+        Effect.runPromise(
+          sourcePage(
+            {
+              ...request,
+              channelId: "101",
+              reconciliation: { kind: "thread" },
+            },
+            "invented",
+            fixture.fetch
+          )
+        )
+      ).rejects.toBeInstanceOf(DiscordFailed);
+    }
+  );
+
+  it.each([15, 16])(
+    "never requests a recent messages page from forum/media root %i",
+    async (channelType) => {
+      const fixture = wire(500, 0, true, undefined, channelType);
+      await expect(
+        Effect.runPromise(
+          sourcePage(
+            { ...request, reconciliation: { kind: "recent" } },
+            "invented",
+            fixture.fetch
+          )
+        )
+      ).resolves.toStrictEqual({
+        reconciliation: { kind: "messages", messages: [] },
+      });
+      expect(fixture.paths).toHaveLength(4);
+    }
+  );
+
   it("checks displayed thread metadata in the same five-request allowance", async () => {
     const fixture = wire(200, 0, true, {
       id: "101",

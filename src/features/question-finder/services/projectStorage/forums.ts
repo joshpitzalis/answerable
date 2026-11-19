@@ -2,7 +2,10 @@ import {
   activationBoundary,
   compareSnowflakes,
 } from "../../domain/harvest.values";
-import type { SourceMessage } from "../../domain/harvest.values";
+import type {
+  IngestionCounts,
+  SourceMessage,
+} from "../../domain/harvest.values";
 import { advanceArchivePage } from "../../domain/thread.rules";
 import { compareArchiveTimes } from "../../domain/thread.values";
 import type { ForumRequest, ThreadPage } from "../../domain/thread.values";
@@ -189,7 +192,8 @@ export const saveForumStarter = (
   generation: number,
   message: SourceMessage,
   policyRevision: string,
-  at: number
+  at: number,
+  counts: { -readonly [K in keyof IngestionCounts]: number }
 ): void =>
   storage.transactionSync(() => {
     const { sql } = storage;
@@ -214,12 +218,14 @@ export const saveForumStarter = (
       throw new Error("Forum starter belongs to another thread");
     }
 
-    ingestMessage(sql, message, {
-      messages: [message],
-      observedAt: at,
-      policyRevision,
-      progress: readProgress(sql, channelId),
-    });
+    counts[
+      ingestMessage(sql, message, {
+        messages: [message],
+        observedAt: at,
+        policyRevision,
+        progress: readProgress(sql, channelId),
+      })
+    ] += 1;
     invalidateThreadContext(sql, message.id);
     sql.exec("UPDATE discord_threads SET starter_pending=0 WHERE id=?", row.id);
     finishDiscovery(sql, channelId, generation, at);

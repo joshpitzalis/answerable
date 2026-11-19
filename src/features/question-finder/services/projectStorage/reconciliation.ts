@@ -1,4 +1,7 @@
-import type { SourceMessage } from "../../domain/harvest.values";
+import type {
+  IngestionCounts,
+  SourceMessage,
+} from "../../domain/harvest.values";
 import type {
   ReconciliationResult,
   ReconciliationWork,
@@ -26,7 +29,8 @@ const ingestObserved = (
   work: ReconciliationWork,
   messages: readonly SourceMessage[],
   policyRevision: string,
-  at: number
+  at: number,
+  counts: { -readonly [K in keyof IngestionCounts]: number }
 ): void => {
   const progress = readProgress(sql, work.streamId);
 
@@ -64,12 +68,14 @@ const ingestObserved = (
       isPost: thread === undefined ? message.isPost : thread.is_post === 1,
     };
 
-    ingestMessage(sql, observed, {
-      messages: [observed],
-      progress,
-      observedAt: at,
-      policyRevision,
-    });
+    counts[
+      ingestMessage(sql, observed, {
+        messages: [observed],
+        progress,
+        observedAt: at,
+        policyRevision,
+      })
+    ] += 1;
     invalidateAffectedThread(sql, message.id);
   }
 };
@@ -80,7 +86,8 @@ export const saveReconciliation = (
   generation: number,
   result: ReconciliationResult,
   policyRevision: string,
-  at: number
+  at: number,
+  counts: { -readonly [K in keyof IngestionCounts]: number }
 ): void =>
   storage.transactionSync(() => {
     const { sql } = storage;
@@ -129,7 +136,7 @@ export const saveReconciliation = (
         throw new Error("Thread metadata reconciliation returned messages");
       }
 
-      ingestObserved(sql, work, result.messages, policyRevision, at);
+      ingestObserved(sql, work, result.messages, policyRevision, at, counts);
     }
 
     clearRetry(sql, "acquisition", work.workId, generation);

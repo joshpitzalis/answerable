@@ -4,7 +4,10 @@ import { describe, expect, it } from "vitest";
 
 import { Discord } from "../../features/question-finder/services/discord";
 import { Judge } from "../../features/question-finder/services/judge";
-import { ProjectStorageError } from "../../features/question-finder/services/projectStorage";
+import {
+  ProjectStorage,
+  ProjectStorageError,
+} from "../../features/question-finder/services/projectStorage";
 import { ScheduledHarvest } from "../../features/question-finder/workflows/scheduledHarvest";
 import { projectHarvestStub } from "../projectHarvest";
 import { sourceMessage, textProject } from "./harvest.test-utils";
@@ -24,6 +27,103 @@ const wire = Layer.succeed(
 );
 
 describe("trusted Harvest configuration", () => {
+  it("refuses new work claimed with stale Project metadata or while suspended", async () => {
+    const project = textProject("configuration-claims");
+    const stub = projectHarvestStub(env.PROJECT_HARVEST, project, "live");
+    await withScheduledHarvest(
+      stub,
+      { now: 2_000_000_000_000 },
+      wire,
+      async (scheduled) => {
+        await scheduled.activate(project);
+        const store = await scheduled.runtime.runPromise(ProjectStorage);
+
+        const progress = await scheduled.runtime.runPromise(
+          store.progress("800")
+        );
+
+        await scheduled.runtime.runPromise(
+          store.ingestPage({
+            messages: [sourceMessage("101")],
+            progress,
+            observedAt: 2_000_000_000_000,
+            policyRevision: "test",
+          })
+        );
+        const changed = { ...project, ownerName: "New owner" };
+        await scheduled.read(changed);
+
+        const claim = (current: typeof project) =>
+          scheduled.runtime.runPromise(
+            Effect.gen(function* () {
+              return {
+                acquisition: yield* store.claimAcquisition(current),
+                processing: yield* store.claimProcessing(current),
+              };
+            })
+          );
+
+        await expect(claim(project)).resolves.toStrictEqual({
+          acquisition: null,
+          processing: null,
+        });
+        await expect(claim(changed)).resolves.toMatchObject({
+          acquisition: { channelId: "800" },
+          processing: "800",
+        });
+
+        const stopped = new ScheduledHarvest(
+          scheduled.runtime,
+          "live",
+          undefined,
+          false
+        );
+
+        await stopped.read(changed);
+        await expect(claim(changed)).resolves.toStrictEqual({
+          acquisition: null,
+          processing: null,
+        });
+
+        const paused = await scheduled.runtime.runPromise(
+          Effect.gen(function* () {
+            yield* store.requestScheduled(
+              changed,
+              "live",
+              true,
+              2_000_000_001_000
+            );
+            yield* store.startScheduled(changed, 2_000_000_001_000);
+            const started = yield* store.schedule;
+
+            const due = yield* store.finishScheduled(
+              changed,
+              2_000_000_001_000
+            );
+
+            const finished = yield* store.schedule;
+
+            return { started, due, finished };
+          })
+        );
+
+        expect(paused).toMatchObject({
+          started: {
+            nextDue: null,
+            runGeneration: null,
+            lastManual: 2_000_000_000_000,
+          },
+          due: null,
+          finished: {
+            nextDue: null,
+            runGeneration: null,
+            lastManual: 2_000_000_000_000,
+          },
+        });
+      }
+    );
+  });
+
   it("keeps saved identity on rename, hides removed Channels and resumes retained progress", async () => {
     const project = textProject("configuration-retention");
     const stub = projectHarvestStub(env.PROJECT_HARVEST, project, "live");
@@ -185,7 +285,7 @@ describe("trusted Harvest configuration", () => {
               .one().next_due
           ).toBeNull();
 
-          const restored = await scheduled.activate(project);
+          const restored = await scheduled.read(project);
           expect(restored.questions).toHaveLength(1);
           await expect(storage.getAlarm()).resolves.not.toBeNull();
         }
@@ -193,25 +293,39 @@ describe("trusted Harvest configuration", () => {
     }
   );
 
-  it("does not activate on reads or allow a Project ID to move to another server", async () => {
-    const project = textProject("configuration-identity");
-    const stub = projectHarvestStub(env.PROJECT_HARVEST, project, "live");
-    await withScheduledHarvest(
-      stub,
-      { now: 2_000_000_000_000 },
-      wire,
-      async (scheduled, storage) => {
-        const initial = await scheduled.read(project);
-        expect(initial.harvest.activatedAt).toBeNull();
-        await expect(storage.getAlarm()).resolves.toBeNull();
-        await scheduled.activate(project);
-        await expect(
-          scheduled.activate({ ...project, serverId: "other-server" })
-        ).rejects.toThrow(ProjectStorageError);
-        await expect(storage.getAlarm()).resolves.toBeNull();
-      }
-    );
-  });
+  it.each(["id", "serverId"])(
+    "does not activate on reads or allow stored identity %s to change",
+    async (field) => {
+      const project = textProject(`configuration-identity-${field}`);
+      const stub = projectHarvestStub(env.PROJECT_HARVEST, project, "live");
+      await withScheduledHarvest(
+        stub,
+        { now: 2_000_000_000_000 },
+        wire,
+        async (scheduled, storage) => {
+          const initial = await scheduled.read(project);
+          expect(initial.harvest.activatedAt).toBeNull();
+          await expect(storage.getAlarm()).resolves.toBeNull();
+
+          const stopped = new ScheduledHarvest(
+            scheduled.runtime,
+            "live",
+            undefined,
+            false
+          );
+
+          await stopped.read(project);
+          await scheduled.read(project);
+          await expect(storage.getAlarm()).resolves.toBeNull();
+          await scheduled.activate(project);
+          await expect(
+            scheduled.activate({ ...project, [field]: "other-identity" })
+          ).rejects.toThrow(ProjectStorageError);
+          await expect(storage.getAlarm()).resolves.toBeNull();
+        }
+      );
+    }
+  );
 
   it("keeps disabled refreshes suspended without deleting saved questions", async () => {
     const project = textProject("configuration-disabled-refresh");

@@ -72,10 +72,23 @@ export const harvestStoredProject = async (
           }
 
           const candidates = yield* store.pending([channelId], 20);
-          yield* Effect.forEach(
+
+          const outcomes = yield* Effect.forEach(
             candidates,
             (candidate) => processCandidate(project, candidate, posts, mode),
-            { concurrency: 4, discard: true }
+            { concurrency: 4 }
+          );
+
+          const channel =
+            project.channels.findIndex((item) => item.id === channelId) + 1;
+
+          const count = (outcome: string) =>
+            outcomes.filter((value) => value === outcome).length;
+
+          const pending = yield* store.pendingCount([channelId]);
+
+          yield* Effect.logInfo(
+            `harvest channel=${channel} evaluated=${outcomes.length} questions=${outcomes.length - count("ignored")} unanswered=${outcomes.length - count("ignored") - count("answered")} kept=${count("kept")} failed=${count("failed")} pending=${pending}`
           );
         })
       ),

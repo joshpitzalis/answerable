@@ -15,6 +15,29 @@ const failureOf = (fetch: typeof globalThis.fetch) =>
   Effect.runPromise(Effect.flip(listMessages(PATH, "secret", fetch)));
 
 describe(listMessages, () => {
+  it("keeps the HTTP failure status independent of extra error-body fields", async () => {
+    const failure = await failureOf(
+      respondWith(
+        Response.json(
+          {
+            code: 10_008,
+            status: 200,
+            reason: "Untrusted body detail",
+          },
+          { status: 404 }
+        )
+      )
+    );
+
+    expect(failure).toStrictEqual(
+      new DiscordFailed({
+        code: 10_008,
+        status: 404,
+        reason: "GET /channels/1/messages returned 404",
+      })
+    );
+  });
+
   it("sends the token to the Discord API and decodes the body", async () => {
     const calls: { url: string; authorization: string | null }[] = [];
 
@@ -135,6 +158,24 @@ describe(listMessages, () => {
 
     expect(failure).toStrictEqual(
       new DiscordRateLimited({ retryAfterMs: 4500, global: true })
+    );
+  });
+
+  it.each([
+    ["X-RateLimit-Global", "true"],
+    ["X-RateLimit-Scope", "global"],
+  ])("honors global pause scope from %s", async (header, value) => {
+    const failure = await failureOf(
+      respondWith(
+        Response.json(
+          { retry_after: 1.25 },
+          { headers: { [header]: value }, status: 429 }
+        )
+      )
+    );
+
+    expect(failure).toStrictEqual(
+      new DiscordRateLimited({ retryAfterMs: 1250, global: true })
     );
   });
 

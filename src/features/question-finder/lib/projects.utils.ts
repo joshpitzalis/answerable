@@ -21,10 +21,12 @@ const assertProjectIds = (projects: readonly Project[]): void => {
 
 // `projects.config.ts` is gitignored, so a fresh clone has none: the glob then
 // matches nothing and the example Projects stand in.
+// Stryker disable all: Vite's compile-time glob requires literal arguments; runtime mutant switches cannot be parsed.
 const local = import.meta.glob<{ PROJECTS: ProjectList }>(
   "./projects.config.ts",
   { eager: true }
 );
+// Stryker restore all
 
 export const PROJECTS: ProjectList =
   local["./projects.config.ts"]?.PROJECTS ?? STUB_PROJECTS;

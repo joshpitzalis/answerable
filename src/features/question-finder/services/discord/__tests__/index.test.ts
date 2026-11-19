@@ -157,7 +157,26 @@ describe("Discord.hasReplyFrom for the XState Project", () => {
   });
 });
 
+const noReplyRequests: typeof globalThis.fetch = () =>
+  Promise.reject(new Error("Reply check fetched content"));
+
 describe("Discord.hasReplyFrom", () => {
+  it("the live opt-out never excludes an author or fetches replies", async () => {
+    await expect(
+      Effect.runPromise(
+        Effect.gen(function* () {
+          const discord = yield* Discord;
+
+          return yield* discord.hasReplyFrom("101", "Example owner");
+        }).pipe(
+          Effect.provide(
+            Discord.layerSkippingReplyCheck("invented", noReplyRequests)
+          )
+        )
+      )
+    ).resolves.toBeFalsy();
+  });
+
   it("is true when the author replied in the thread", async () => {
     await expect(
       withDiscord((discord) => discord.hasReplyFrom(ANSWERED_THREAD, "josh"))

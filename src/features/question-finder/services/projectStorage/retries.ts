@@ -26,7 +26,7 @@ export const recordRetry = (
   storage: DurableObjectStorage,
   retry: HarvestRetry,
   at: number
-): void =>
+) =>
   storage.transactionSync(() => {
     const { generation } = storage.sql
       .exec<{ generation: number }>(
@@ -82,6 +82,8 @@ export const recordRetry = (
         at + (retry.retryAfterMs ?? CONTINUATION_DELAY)
       );
     }
+
+    return { attempts, delayMs: next - at };
   });
 
 export const clearRetry = (

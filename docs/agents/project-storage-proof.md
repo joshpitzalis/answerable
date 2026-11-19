@@ -2,6 +2,8 @@
 
 Ticket #16 establishes the infrastructure gate for #14. It does not yet move page reads or Discord collection onto durable storage.
 
+This is the historical first gate. The assembled implementation and current verification procedure are documented in [durable Harvest verification](durable-harvest-verification.md).
+
 ## Local evidence
 
 On 2026-11-16, with invented data and no Discord token:

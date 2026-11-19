@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
 
-import { parseProject } from "../index";
+import {
+  activateHarvest,
+  listQuestions,
+  parseProject,
+  refreshHarvest,
+} from "../index";
 import { STUB_PROJECTS } from "../lib/projects.utils";
+
+describe("Harvest transport", () => {
+  it("keeps state-changing Harvest requests on POST and saved reads on GET", () => {
+    expect(activateHarvest.method).toBe("POST");
+    expect(refreshHarvest.method).toBe("POST");
+    expect(listQuestions.method).toBe("GET");
+  });
+});
 
 describe(parseProject, () => {
   it("resolves a known slug to its Project", () => {
