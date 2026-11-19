@@ -54,6 +54,9 @@ For #309, a valid invented local registry was paired temporarily with an empty f
 - The legacy storage `fail` wrapper has no production or test caller; durable acquisition/processing failures use `retry` instead. Mutations confined to that unused wrapper do not change the assembled Harvest.
 - The schedule's nonfinite-due fallback is unreachable with the trusted finite clock and current writers: current status supplies finite cadence; incomplete acquisition, processing or reconciliation supplies queued work; failures supply persisted retries. Suspended/mismatched configuration returns earlier, and initial storage has no failure. Retain the fallback for malformed or legacy state; this equivalence claim does not extend to those unsupported inputs.
 - Always attempting the text-thread association UPDATE for a forum does not change valid stored data: its predicate requires the message to be in the parent Channel, while a forum starter is stored in the distinct thread Channel. The actual text-thread association remains required and tested.
+- Reconciliation's `messages: [observed]` argument to `ingestMessage` can be empty because that single-message writer reads only `observedAt` and `policyRevision` from the page object; the observed message is passed separately. This does not apply to `ingestPage`, which iterates the page's messages.
+- The same unused page-message argument applies to the single forum-starter writer. The legacy Discord comparison's unequal-length branch can use `>=` instead of `>` because equal lengths have already selected the other ternary branch.
+- The thread completion check's generation equality can be always true while retaining `before === null`: every non-null result from `advanceMessagePage` with no continuation carries the supplied generation. The continuation check itself remains necessary when a completed thread reopens within the same generation.
 
 ## Current-run triage
 
@@ -130,6 +133,20 @@ IDs refer to the replacement run's saved events; source changes can renumber mut
 | Cycle #1388/#1401/#1402 | Three-Channel claims skip a deferred sibling without reversing rotation; regular acquisition and reconciliation each receive a turn while both remain pending |
 | Cycle #1435 and fixture #478/#479 | Stale/suspended metadata cannot claim pending processing; a known fixture starter is available only from its original Channel |
 | Cycle #1445/#1447 and fixture #495 | Processing claims skip empty/deferred Channels and stop when none is eligible; fixture pages honor an explicit small limit and the default window |
+| Cycle #1437 and related acquisition loop bound | Removing every configured Channel leaves both public claim methods empty, without indexing a nonexistent Channel |
+| Thread writer #2539/#2552/#2556 | Captured-range test includes the exact upper boundary, asserts committed ingestion counts, and retains the completed generation |
+| Reconciliation #2155/#2158/#2159/#2163/#2165 | `reconciliationMetadata.workers.test.ts`: preserved starter/reply association, post kind, and exact inserted/updated/unchanged counts |
+| Thread writer #2559/#2562 | `threadContinuation.workers.test.ts`: a same-generation archived tail stays pending across a full page and finishes only after continuation |
+| Schedule #2439 | `scheduledSiblingRetry.workers.test.ts`: one exhausted Channel cannot delay a ready sibling until the retry-budget reset |
+| Forum #1592 | `forumBoundary.workers.test.ts`: subsequent discovery includes the exact activation snowflake and excludes the older neighbor |
+| Source #956/#957 | Archive fetch contract preserves its 100-thread limit and persisted timestamp continuation |
+| Schedule #2477 | `configurationSources.workers.test.ts`: starting a batch creates newly configured Channel progress, preserves existing progress and updates the attempt timestamp |
+| Reconciliation #2221 | Valid thread metadata reconciliation updates title/archive metadata and reopens the final message tail through the public request API |
+| Forum #1634/#1637 | Archive admission includes exact activation-floor/captured-upper timestamps and excludes each microsecond outside that range |
+| Wake resume guards | Native alarm observation rejects transient writes for disabled/removed/mismatched configuration; a real SQLite resume interruption still leaves the pre-commit recovery alarm |
+| Source #1015 | Public text-thread discovery returns non-forum/non-post metadata, independently of the forum discovery contract |
+| Forum #1672 | Metadata proof also asserts the initial forum starter's exact committed ingestion count |
+| Forum #1678 | Processing a starter followed by an empty first comment page does not requeue unchanged context |
 
 ## Interrupted run
 

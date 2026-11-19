@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { Effect, Logger } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -169,28 +170,46 @@ describe("thread storage boundaries", () => {
       "thread-captured-upper",
       async (scheduled, storage, generation) => {
         const store = await scheduled.runtime.runPromise(ProjectStorage);
+        const lines: string[] = [];
         storage.sql.exec(
           "UPDATE fetch_progress SET seeded=1, completed_boundary='100', upper_boundary='200', before_id='151' WHERE stream_id='101'"
         );
         await expect(
           scheduled.runtime.runPromise(
-            store.saveThreadMessages(
-              thread,
-              generation,
-              [reply("201"), reply("150")],
-              "test",
-              at
-            )
+            store
+              .saveThreadMessages(
+                thread,
+                generation,
+                [reply("201"), reply("200"), reply("150")],
+                "test",
+                at
+              )
+              .pipe(
+                Effect.provide(
+                  Logger.layer([
+                    Logger.make(({ message }) => {
+                      lines.push(String(message));
+                    }),
+                  ])
+                )
+              )
           )
         ).resolves.toBeTruthy();
+        expect(lines).toStrictEqual([
+          "harvest ingestion inserted=2 updated=0 unchanged=0",
+        ]);
         const messages = await scheduled.runtime.runPromise(store.messages);
-        expect(messages.map((message) => message.id)).toStrictEqual(["150"]);
+        expect(messages.map((message) => message.id)).toStrictEqual([
+          "150",
+          "200",
+        ]);
         await expect(
           scheduled.runtime.runPromise(store.progress("101"))
         ).resolves.toMatchObject({
           completedBoundary: "200",
           upperBoundary: null,
           before: null,
+          generation,
         });
       }
     );

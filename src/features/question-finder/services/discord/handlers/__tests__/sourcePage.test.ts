@@ -29,7 +29,7 @@ interface DiscoveryFixture {
 }
 
 const wire =
-  (page: DiscoveryFixture): typeof globalThis.fetch =>
+  (page: DiscoveryFixture, channelType = 15): typeof globalThis.fetch =>
   (input) => {
     const path = new URL(String(input)).pathname;
 
@@ -39,7 +39,12 @@ const wire =
       ["/guilds/700/members/600", { roles: [] }],
       [
         "/channels/800",
-        { id: "800", guild_id: "700", type: 15, permission_overwrites: [] },
+        {
+          id: "800",
+          guild_id: "700",
+          type: channelType,
+          permission_overwrites: [],
+        },
       ],
     ]);
 
@@ -51,6 +56,58 @@ const wire =
   };
 
 describe("forum discovery boundary", () => {
+  it("distinguishes public text threads from forum posts during discovery", async () => {
+    const result = await Effect.runPromise(
+      sourcePage(
+        {
+          ...request,
+          forum: { kind: "active" },
+        },
+        "invented",
+        wire({ threads: [thread] }, 0)
+      )
+    );
+
+    expect(result).toMatchObject({
+      isForum: false,
+      threads: [{ id: "101", isPost: false, parentChannelId: "800" }],
+    });
+  });
+
+  it("requests a bounded archive page with the persisted timestamp continuation", async () => {
+    const urls: URL[] = [];
+    const metadata = wire({ threads: [], has_more: false });
+
+    const fetch: typeof globalThis.fetch = (input, init) => {
+      urls.push(new URL(String(input)));
+
+      return metadata(input, init);
+    };
+
+    await Effect.runPromise(
+      sourcePage(
+        {
+          ...request,
+          forum: { kind: "archive", before: "2026-11-01T00:00:00.000001Z" },
+        },
+        "invented",
+        fetch
+      )
+    );
+
+    const archive = urls.find((url) =>
+      url.pathname.endsWith("/threads/archived/public")
+    );
+
+    expect(archive?.pathname).toMatch(
+      /\/channels\/800\/threads\/archived\/public$/u
+    );
+    expect(archive?.searchParams.get("limit")).toBe("100");
+    expect(archive?.searchParams.get("before")).toBe(
+      "2026-11-01T00:00:00.000001Z"
+    );
+  });
+
   it("refuses another Channel's thread before requesting its messages", async () => {
     const paths: string[] = [];
     const metadata = wire({ threads: [] });
