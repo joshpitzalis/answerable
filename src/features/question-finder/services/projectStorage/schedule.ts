@@ -3,8 +3,8 @@ import {
   CONTINUATION_DELAY,
   HARVEST_INTERVAL,
   MANUAL_COOLDOWN,
-} from "../../domain/schedule.values";
-import type { HarvestSchedule } from "../../domain/schedule.values";
+} from "../../domain/values/schedule.values";
+import type { HarvestSchedule } from "../../domain/values/schedule.values";
 import { configurationMatches } from "./configuration";
 import { beginCycle, readCycle } from "./cycle";
 import { activateProject, readSavedProject } from "./progress";

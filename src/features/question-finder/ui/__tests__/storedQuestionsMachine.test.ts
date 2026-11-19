@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createActor, SimulatedClock, waitFor } from "xstate";
 
-import type { StoredQuestionsReply } from "../../domain/harvest.values";
+import type { StoredQuestionsReply } from "../../domain/values/harvest.values";
 import { createQuestionsMachine } from "../questionsMachine";
 
 const saved = (

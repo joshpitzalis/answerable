@@ -1,8 +1,8 @@
 import {
   CONTINUATION_DELAY,
   HARVEST_INTERVAL,
-} from "../../domain/schedule.values";
-import type { HarvestRetry } from "../../domain/schedule.values";
+} from "../../domain/values/schedule.values";
+import type { HarvestRetry } from "../../domain/values/schedule.values";
 import { acquisitionWork } from "./acquisitionWork";
 
 export const workEligible = (

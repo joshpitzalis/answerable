@@ -2,7 +2,7 @@ import { runInDurableObject } from "cloudflare:test";
 import { Effect, Layer, ManagedRuntime } from "effect";
 
 import type { Project } from "../../features/question-finder/domain";
-import type { SourceMessage } from "../../features/question-finder/domain/harvest.values";
+import type { SourceMessage } from "../../features/question-finder/domain/values/harvest.values";
 import { Corpus } from "../../features/question-finder/services/corpus";
 import { Discord } from "../../features/question-finder/services/discord";
 import type { Judge } from "../../features/question-finder/services/judge";

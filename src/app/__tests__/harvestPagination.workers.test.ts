@@ -4,7 +4,7 @@ import { env } from "cloudflare:workers";
 import { Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 
-import { compareSnowflakes } from "../../features/question-finder/domain/harvest.values";
+import { compareSnowflakes } from "../../features/question-finder/domain/values/harvest.values";
 import { Discord } from "../../features/question-finder/services/discord";
 import { Judge } from "../../features/question-finder/services/judge";
 import {

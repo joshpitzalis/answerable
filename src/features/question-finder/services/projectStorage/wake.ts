@@ -1,5 +1,5 @@
 import type { Project } from "../../domain";
-import { RECOVERY_DELAY } from "../../domain/schedule.values";
+import { RECOVERY_DELAY } from "../../domain/values/schedule.values";
 import { readConfiguration, reconcileConfiguration } from "./configuration";
 import { readSchedule } from "./schedule";
 

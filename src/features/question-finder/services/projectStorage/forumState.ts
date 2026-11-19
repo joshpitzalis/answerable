@@ -1,5 +1,5 @@
-import { activationBoundary } from "../../domain/harvest.values";
-import type { DiscordThread } from "../../domain/thread.values";
+import { activationBoundary } from "../../domain/values/harvest.values";
+import type { DiscordThread } from "../../domain/values/thread.values";
 import { invalidateThreadContext } from "./threadContext";
 
 // oxlint-disable-next-line typescript/consistent-type-definitions -- SQLite rows require an implicit index signature.

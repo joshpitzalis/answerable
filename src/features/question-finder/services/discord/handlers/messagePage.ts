@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 
-import type { SourceMessage } from "../../../domain/harvest.values";
+import type { SourceMessage } from "../../../domain/values/harvest.values";
 import { DiscordFailed } from "../lib/errors";
 import { discordGet } from "./discordGet";
 

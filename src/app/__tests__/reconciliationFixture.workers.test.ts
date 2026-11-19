@@ -2,7 +2,7 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
-import { reconciliationInterval } from "../../features/question-finder/domain/reconciliation.values";
+import { reconciliationInterval } from "../../features/question-finder/domain/values/reconciliation.values";
 import { EFFECT_PROJECT } from "../../features/question-finder/lib/projects.config.example";
 import { Discord } from "../../features/question-finder/services/discord";
 import { projectHarvestStub } from "../projectHarvest";

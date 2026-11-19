@@ -3,7 +3,7 @@ import { Effect, Schema } from "effect";
 import type {
   ReconciliationRequest,
   ReconciliationResult,
-} from "../../../domain/reconciliation.values";
+} from "../../../domain/values/reconciliation.values";
 import { DiscordFailed } from "../lib/errors";
 import type { DiscordRateLimited } from "../lib/errors";
 import { discordGet } from "./discordGet";

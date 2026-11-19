@@ -49,6 +49,8 @@ The same acquisition turn performs active discovery, public archive pages, then 
 
 Forum title and body remain separate in storage. `pending` joins the starter's current title; the existing processor derives title plus body for judgement/display. The raw starter contributes once. Title changes invalidate processing in the metadata transaction, preserving the old saved question until replacement commits.
 
+New active text threads use Discord's parsed `thread_metadata.create_timestamp` as well as their ID and retained-starter coverage when admitted. A thread started from an old message reuses that message's ID, so its snowflake alone cannot establish thread creation time. Creation time is needed only at discovery; the saved thread identity keeps it eligible afterward. Missing/null legacy creation metadata preserves the existing ID/known-thread rules. See the [Discord channel contract](https://docs.discord.com/developers/resources/channel#thread-metadata-object).
+
 ## Tracked thread comments (#20)
 
 Text parents perform public active/archive discovery after their message pages. Existing seeded text starters and new threads since activation enter the registry; ordinary message IDs are never requested as threads. Each registry entry has its own `fetch_progress` row seeded at boundary zero, so the first collection walks all accessible history rather than stopping at fifty messages. Active entries collect every generation. An observed archive transition sets final-tail work; archived entries then rest until rediscovered active.

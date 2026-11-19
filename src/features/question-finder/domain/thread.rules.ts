@@ -1,4 +1,4 @@
-import { compareArchiveTimes } from "./thread.values";
+import { compareArchiveTimes } from "./values/thread.values";
 
 export const advanceArchivePage = (
   timestamps: readonly string[],

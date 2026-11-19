@@ -1,11 +1,14 @@
 import { createServerFn } from "@tanstack/react-start";
 
-import { scheduledProject } from "#/app/projectHarvestClient";
+import { runHarvestAccess } from "#/app/projectHarvestClient";
 import { activeProjects } from "#/app/runtime";
 
 import type { Project } from "./domain";
-import type { StoredQuestionsReply } from "./domain/harvest.values";
+import type { StoredQuestionsReply } from "./domain/values/harvest.values";
 import { findProject } from "./lib/projects.utils";
+import { activateProjectHarvest } from "./workflows/activateProjectHarvest";
+import { readProjectHarvest } from "./workflows/readProjectHarvest";
+import { refreshProjectHarvest } from "./workflows/refreshProjectHarvest";
 
 export type { FailedChannel, QuestionsReply, QuestionsRow } from "./domain";
 
@@ -29,7 +32,7 @@ export const listQuestions = createServerFn({ method: "GET" })
   .handler(({ data: slug }): Promise<StoredQuestionsReply> => {
     const project = parseProject(slug, activeProjects());
 
-    return scheduledProject(project).read(project);
+    return runHarvestAccess(readProjectHarvest(project));
   });
 
 export const activateHarvest = createServerFn({ method: "POST" })
@@ -37,7 +40,7 @@ export const activateHarvest = createServerFn({ method: "POST" })
   .handler(({ data: slug }): Promise<StoredQuestionsReply> => {
     const project = parseProject(slug, activeProjects());
 
-    return scheduledProject(project).activate(project.id);
+    return runHarvestAccess(activateProjectHarvest(project));
   });
 
 export const refreshHarvest = createServerFn({ method: "POST" })
@@ -45,5 +48,5 @@ export const refreshHarvest = createServerFn({ method: "POST" })
   .handler(({ data: slug }): Promise<StoredQuestionsReply> => {
     const project = parseProject(slug, activeProjects());
 
-    return scheduledProject(project).requestHarvest(project);
+    return runHarvestAccess(refreshProjectHarvest(project));
   });

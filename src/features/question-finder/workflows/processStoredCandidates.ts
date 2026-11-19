@@ -2,8 +2,8 @@ import { Effect } from "effect";
 
 import type { Project } from "../domain";
 import { looksLikeAQuestion, toRow } from "../domain";
-import { processingPolicy } from "../domain/harvest.values";
-import type { ProcessingCandidate } from "../domain/harvest.values";
+import { processingPolicy } from "../domain/values/harvest.values";
+import type { ProcessingCandidate } from "../domain/values/harvest.values";
 import { Corpus } from "../services/corpus";
 import type { Post } from "../services/corpus";
 import { Judge } from "../services/judge";

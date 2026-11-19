@@ -1,8 +1,8 @@
 import { Clock, Effect } from "effect";
 
 import type { Project } from "../domain";
-import { compareSnowflakes } from "../domain/harvest.values";
 import { advanceMessagePage } from "../domain/pagination.rules";
+import { compareSnowflakes } from "../domain/values/harvest.values";
 import { Discord, DiscordFailed } from "../services/discord";
 import { ProjectStorage } from "../services/projectStorage";
 

@@ -4,7 +4,7 @@ import type { ContributorStats, FailedChannel, QuestionsRow } from "../domain";
 import type {
   HarvestStatus,
   StoredQuestionsReply,
-} from "../domain/harvest.values";
+} from "../domain/values/harvest.values";
 
 export interface QuestionsCommands {
   load: () => Promise<StoredQuestionsReply>;

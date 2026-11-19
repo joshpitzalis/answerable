@@ -10,20 +10,20 @@ import type {
   StoredMessage,
   StoredQuestionsReply,
   SourceMessage,
-} from "../../domain/harvest.values";
+} from "../../domain/values/harvest.values";
 import type {
   ReconciliationWork,
   ReconciliationResult,
-} from "../../domain/reconciliation.values";
+} from "../../domain/values/reconciliation.values";
 import type {
   HarvestRetry,
   HarvestSchedule,
-} from "../../domain/schedule.values";
+} from "../../domain/values/schedule.values";
 import type {
   DiscordThread,
   ForumRequest,
   ThreadPage,
-} from "../../domain/thread.values";
+} from "../../domain/values/thread.values";
 import { ingestPage, readMessages } from "./content";
 import { beginCycle, claimAcquisition, claimProcessing } from "./cycle";
 import { nextForumRequest, saveForumStarter, saveThreadPage } from "./forums";

@@ -4,7 +4,7 @@ import { env } from "cloudflare:workers";
 import { Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 
-import { reconciliationInterval } from "../../features/question-finder/domain/reconciliation.values";
+import { reconciliationInterval } from "../../features/question-finder/domain/values/reconciliation.values";
 import {
   Discord,
   DiscordFailed,

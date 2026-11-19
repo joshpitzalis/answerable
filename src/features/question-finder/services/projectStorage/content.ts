@@ -3,7 +3,7 @@ import type {
   PageIngestion,
   SourceMessage,
   StoredMessage,
-} from "../../domain/harvest.values";
+} from "../../domain/values/harvest.values";
 import { clearRetry } from "./retries";
 
 // oxlint-disable-next-line typescript/consistent-type-definitions -- SQLite rows require an implicit index signature.
@@ -136,10 +136,6 @@ export const ingestMessage = (
       revision,
       page.policyRevision
     );
-  }
-
-  if (changed) {
-    sql.exec("DELETE FROM questions WHERE id = ?", message.id);
   }
 
   if (previous === undefined) {

@@ -1,4 +1,4 @@
-import type { QuestionsReply } from "./index";
+import type { QuestionsReply } from "../index";
 import type { ReconciliationWork } from "./reconciliation.values";
 
 export interface SourceMessage {

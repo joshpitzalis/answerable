@@ -1,5 +1,5 @@
 import type { Project } from "../../domain";
-import type { HarvestTurn } from "../../domain/harvest.values";
+import type { HarvestTurn } from "../../domain/values/harvest.values";
 import { acquisitionWork } from "./acquisitionWork";
 import { configurationMatches } from "./configuration";
 import { selectReconciliation } from "./reconciliationWork";

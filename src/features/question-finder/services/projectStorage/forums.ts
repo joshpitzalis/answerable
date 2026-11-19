@@ -1,11 +1,14 @@
+import { advanceArchivePage } from "../../domain/thread.rules";
 import {
   activationBoundary,
   compareSnowflakes,
-} from "../../domain/harvest.values";
-import type { SourceMessage } from "../../domain/harvest.values";
-import { advanceArchivePage } from "../../domain/thread.rules";
-import { compareArchiveTimes } from "../../domain/thread.values";
-import type { ForumRequest, ThreadPage } from "../../domain/thread.values";
+} from "../../domain/values/harvest.values";
+import type { SourceMessage } from "../../domain/values/harvest.values";
+import { compareArchiveTimes } from "../../domain/values/thread.values";
+import type {
+  ForumRequest,
+  ThreadPage,
+} from "../../domain/values/thread.values";
 import { ingestMessage } from "./content";
 import { readCycle } from "./cycle";
 import { finishDiscovery, fromThread, saveThread, scan } from "./forumState";
@@ -107,6 +110,10 @@ export const saveThreadPage = (
               .slice(0, 50)
           : unique.filter(
               (thread) =>
+                (page.isForum === false &&
+                  thread.createdAt !== undefined &&
+                  thread.createdAt !== null &&
+                  Date.parse(thread.createdAt) >= activated_at) ||
                 compareSnowflakes(
                   thread.id,
                   activationBoundary(activated_at)
