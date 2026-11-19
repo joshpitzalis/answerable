@@ -44,7 +44,9 @@ describe("scheduled crash recovery", () => {
         expect(Number(saved.harvest.activatedAt !== null)).toBe(
           expectedActivated
         );
-        await expect(storage.getAlarm()).resolves.not.toBeNull();
+        await expect(storage.getAlarm()).resolves.toBe(
+          time.now + (expectedActivated === 0 ? 30_000 : 0)
+        );
         storage.sql.exec("DROP TRIGGER activation_crash");
       }
     );
