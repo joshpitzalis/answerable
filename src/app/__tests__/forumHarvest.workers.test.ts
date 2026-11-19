@@ -3,7 +3,7 @@ import { evictDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
-import { activationBoundary } from "../../features/question-finder/domain/harvest.values";
+import { activationBoundary } from "../../features/question-finder/domain/values/harvest.values";
 import { Corpus } from "../../features/question-finder/services/corpus";
 import { Discord } from "../../features/question-finder/services/discord";
 import { Judge } from "../../features/question-finder/services/judge";

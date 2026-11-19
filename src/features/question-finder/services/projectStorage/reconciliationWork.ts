@@ -1,6 +1,6 @@
 import type { Project } from "../../domain";
-import { reconciliationInterval } from "../../domain/reconciliation.values";
-import type { ReconciliationWork } from "../../domain/reconciliation.values";
+import { reconciliationInterval } from "../../domain/values/reconciliation.values";
+import type { ReconciliationWork } from "../../domain/values/reconciliation.values";
 
 export const reconciliationDue = (sql: SqlStorage): number | null =>
   sql

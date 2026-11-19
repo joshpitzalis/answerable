@@ -14,7 +14,7 @@ import type {
   DiscordRateLimited,
 } from "#/features/question-finder/services/discord/lib/errors";
 
-import type { SourcePage } from "../../domain/thread.values";
+import type { SourcePage } from "../../domain/values/thread.values";
 import {
   fixtureFetch,
   isPostChannel,

@@ -1,5 +1,5 @@
 import type { QuestionsRow } from "../../domain";
-import type { ProcessingCandidate } from "../../domain/harvest.values";
+import type { ProcessingCandidate } from "../../domain/values/harvest.values";
 import { messageFromRow } from "./content";
 import type { MessageRow } from "./content";
 import { saveQuestions } from "./questions";

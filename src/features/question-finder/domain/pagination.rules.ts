@@ -1,5 +1,5 @@
-import { activationBoundary, compareSnowflakes } from "./harvest.values";
-import type { FetchProgress, SourceMessage } from "./harvest.values";
+import { activationBoundary, compareSnowflakes } from "./values/harvest.values";
+import type { FetchProgress, SourceMessage } from "./values/harvest.values";
 
 export const advanceMessagePage = (
   progress: FetchProgress,

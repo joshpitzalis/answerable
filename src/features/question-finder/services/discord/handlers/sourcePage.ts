@@ -1,11 +1,11 @@
 import { Effect, Schema } from "effect";
 
-import type { ReconciliationRequest } from "../../../domain/reconciliation.values";
+import type { ReconciliationRequest } from "../../../domain/values/reconciliation.values";
 import type {
   ForumRequest,
   SourcePage,
   ThreadPage,
-} from "../../../domain/thread.values";
+} from "../../../domain/values/thread.values";
 import { DiscordFailed } from "../lib/errors";
 import type { DiscordRateLimited } from "../lib/errors";
 import { discordGet } from "./discordGet";
@@ -133,6 +133,7 @@ export const sourcePage = Effect.fn("Discord.sourcePage")(function* (
       starterId: thread.id,
       archived: thread.thread_metadata.archived,
       archiveTimestamp: thread.thread_metadata.archive_timestamp,
+      createdAt: thread.thread_metadata.create_timestamp ?? null,
       isPost: type !== 0,
     })),
   };

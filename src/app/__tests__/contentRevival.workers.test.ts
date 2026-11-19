@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
-import { processingPolicy } from "../../features/question-finder/domain/harvest.values";
+import { processingPolicy } from "../../features/question-finder/domain/values/harvest.values";
 import { ProjectStorage } from "../../features/question-finder/services/projectStorage";
 import { projectHarvestStub } from "../projectHarvest";
 import { discordPage, sourceMessage, textProject } from "./harvest.test-utils";

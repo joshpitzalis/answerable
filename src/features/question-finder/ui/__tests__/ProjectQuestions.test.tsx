@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { StoredQuestionsReply } from "../../domain/harvest.values";
+import type { StoredQuestionsReply } from "../../domain/values/harvest.values";
 import { EFFECT_PROJECT } from "../../lib/projects.config.example";
 import { ProjectQuestions } from "../ProjectQuestions";
 

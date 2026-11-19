@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { HarvestStatus as Status } from "../../domain/harvest.values";
+import type { HarvestStatus as Status } from "../../domain/values/harvest.values";
 import { HarvestStatus } from "../HarvestStatus";
 
 describe("saved Harvest status", () => {

@@ -8,6 +8,7 @@ export interface DiscordThread {
   readonly starterId: string;
   readonly archived: boolean;
   readonly archiveTimestamp: string;
+  readonly createdAt?: string | null;
   readonly isPost?: boolean;
 }
 

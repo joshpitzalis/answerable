@@ -1,7 +1,7 @@
 import FIXTURE from "#/features/question-finder/services/_fixtures/messages.json" with { type: "json" };
 import { ANSWERED_THREADS } from "#/features/question-finder/services/discord/lib/constants";
 
-import { compareSnowflakes } from "../../../domain/harvest.values";
+import { compareSnowflakes } from "../../../domain/values/harvest.values";
 import { PROJECTS } from "../../../lib/projects.config.example";
 
 /**

@@ -10,5 +10,12 @@ export const Thread = Schema.Struct({
     archive_timestamp: Schema.String.check(
       Schema.makeFilter((value) => Number.isFinite(Date.parse(value)))
     ),
+    create_timestamp: Schema.optional(
+      Schema.NullOr(
+        Schema.String.check(
+          Schema.makeFilter((value) => Number.isFinite(Date.parse(value)))
+        )
+      )
+    ),
   }),
 });

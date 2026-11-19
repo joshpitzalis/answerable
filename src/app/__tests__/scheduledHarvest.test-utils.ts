@@ -2,7 +2,7 @@ import { runInDurableObject } from "cloudflare:test";
 import { Clock, Effect, Layer, ManagedRuntime } from "effect";
 
 import type { Project } from "../../features/question-finder/domain";
-import type { ThreadPage } from "../../features/question-finder/domain/thread.values";
+import type { ThreadPage } from "../../features/question-finder/domain/values/thread.values";
 import { Corpus } from "../../features/question-finder/services/corpus";
 import type { Discord } from "../../features/question-finder/services/discord";
 import type { SourcePageRequest } from "../../features/question-finder/services/discord/handlers/sourcePage";

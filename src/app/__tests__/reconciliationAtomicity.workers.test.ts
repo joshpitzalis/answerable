@@ -2,8 +2,8 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
-import { processingPolicy } from "../../features/question-finder/domain/harvest.values";
-import type { ReconciliationWork } from "../../features/question-finder/domain/reconciliation.values";
+import { processingPolicy } from "../../features/question-finder/domain/values/harvest.values";
+import type { ReconciliationWork } from "../../features/question-finder/domain/values/reconciliation.values";
 import { Discord } from "../../features/question-finder/services/discord";
 import {
   ProjectStorage,

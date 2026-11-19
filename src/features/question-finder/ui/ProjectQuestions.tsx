@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 
 import type { Project } from "../domain";
-import type { StoredQuestionsReply } from "../domain/harvest.values";
+import type { StoredQuestionsReply } from "../domain/values/harvest.values";
 import { createQuestionsMachine } from "./questionsMachine";
 import { QuestionsView } from "./QuestionsView";
 

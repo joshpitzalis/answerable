@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 
-import type { DiscordThread } from "../../../domain/thread.values";
+import type { DiscordThread } from "../../../domain/values/thread.values";
 import { DiscordFailed } from "../lib/errors";
 import { discordGet } from "./discordGet";
 import { RawContent, toSourceMessage } from "./messagePage";

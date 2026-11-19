@@ -1,13 +1,18 @@
 export const forumThread = (
   id: string,
   archived = false,
-  at = "2026-11-01T00:00:00.000000Z"
+  at = "2026-11-01T00:00:00.000000Z",
+  createdAt?: string | null
 ) => ({
   id,
   parent_id: "800",
   type: 11,
   name: `Forum ${id}`,
-  thread_metadata: { archived, archive_timestamp: at },
+  thread_metadata: {
+    archived,
+    archive_timestamp: at,
+    create_timestamp: createdAt,
+  },
 });
 
 export const forumWire = () => {
@@ -125,7 +130,7 @@ export const forumWire = () => {
     return Promise.resolve(
       Response.json({
         id,
-        channel_id: id,
+        channel_id: state.channelType === 0 ? "800" : id,
         content: "Plain forum body",
         timestamp: "2026-11-01T00:00:00Z",
         author: { id: "900", username: "Writer" },

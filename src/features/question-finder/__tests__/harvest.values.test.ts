@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { activationBoundary } from "../domain/harvest.values";
+import { activationBoundary } from "../domain/values/harvest.values";
 
 describe("Discord activation snowflake boundary", () => {
   it.each([

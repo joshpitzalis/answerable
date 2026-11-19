@@ -4,7 +4,7 @@ import type {
   FetchProgress,
   HarvestStatus,
   StoredQuestionsReply,
-} from "../../domain/harvest.values";
+} from "../../domain/values/harvest.values";
 import { configurationMatches, readConfiguration } from "./configuration";
 import { readMessages } from "./content";
 import { readCycle } from "./cycle";

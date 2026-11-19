@@ -199,12 +199,24 @@ describe("forum discovery boundary", () => {
           starterId: "101",
           archived: false,
           archiveTimestamp: "2026-11-01T00:00:00.000001Z",
+          createdAt: null,
         },
       ],
     });
   });
 
   it.each([
+    {
+      threads: [
+        {
+          ...thread,
+          thread_metadata: {
+            ...thread.thread_metadata,
+            create_timestamp: "invalid",
+          },
+        },
+      ],
+    },
     {
       threads: [
         {

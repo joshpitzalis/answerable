@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { compareArchiveTimes } from "../domain/thread.values";
+import { compareArchiveTimes } from "../domain/values/thread.values";
 
 describe("archive timestamp ordering", () => {
   it.each([

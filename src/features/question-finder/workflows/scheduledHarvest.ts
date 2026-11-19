@@ -3,7 +3,7 @@ import type { ManagedRuntime } from "effect";
 import { createActor, createAsyncLogic, setup, toPromise } from "xstate";
 
 import type { Project } from "../domain";
-import { RECOVERY_DELAY } from "../domain/schedule.values";
+import { RECOVERY_DELAY } from "../domain/values/schedule.values";
 import { ProjectStorage } from "../services/projectStorage";
 import { fromEffect } from "./fromEffect";
 import type { HarvestClock } from "./harvestQuestions";

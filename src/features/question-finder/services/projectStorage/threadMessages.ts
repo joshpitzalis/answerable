@@ -1,10 +1,10 @@
+import { advanceMessagePage } from "../../domain/pagination.rules";
 import type {
   IngestionCounts,
   SourceMessage,
-} from "../../domain/harvest.values";
-import { compareSnowflakes } from "../../domain/harvest.values";
-import { advanceMessagePage } from "../../domain/pagination.rules";
-import type { DiscordThread } from "../../domain/thread.values";
+} from "../../domain/values/harvest.values";
+import { compareSnowflakes } from "../../domain/values/harvest.values";
+import type { DiscordThread } from "../../domain/values/thread.values";
 import { ingestMessage } from "./content";
 import { readCycle } from "./cycle";
 import { finishDiscovery } from "./forumState";

@@ -3,7 +3,7 @@ import { HStack, VStack } from "@astryxdesign/core/Layout";
 import { Text } from "@astryxdesign/core/Text";
 import { Token } from "@astryxdesign/core/Token";
 
-import type { HarvestStatus as Status } from "../domain/harvest.values";
+import type { HarvestStatus as Status } from "../domain/values/harvest.values";
 
 const timestamp = (at: number) =>
   new Intl.DateTimeFormat(undefined, {

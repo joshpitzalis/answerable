@@ -5,7 +5,7 @@ import type {
   ReconciliationWork,
   ReconciliationRequest,
   ReconciliationResult,
-} from "../../features/question-finder/domain/reconciliation.values";
+} from "../../features/question-finder/domain/values/reconciliation.values";
 import {
   ProjectStorage,
   ProjectStorageError,

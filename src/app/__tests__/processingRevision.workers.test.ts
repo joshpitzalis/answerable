@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { Deferred, Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 
-import { processingPolicy } from "../../features/question-finder/domain/harvest.values";
+import { processingPolicy } from "../../features/question-finder/domain/values/harvest.values";
 import { Judge } from "../../features/question-finder/services/judge";
 import { ProjectStorage } from "../../features/question-finder/services/projectStorage";
 import { harvestStoredProject } from "../../features/question-finder/workflows/harvestStoredProject";

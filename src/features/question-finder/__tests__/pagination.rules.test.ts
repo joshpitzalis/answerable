@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { FetchProgress } from "../domain/harvest.values";
 import { advanceMessagePage } from "../domain/pagination.rules";
+import type { FetchProgress } from "../domain/values/harvest.values";
 
 const progress: FetchProgress = {
   streamId: "800",

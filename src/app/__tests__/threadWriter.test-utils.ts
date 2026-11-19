@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 
-import type { DiscordThread } from "../../features/question-finder/domain/thread.values";
+import type { DiscordThread } from "../../features/question-finder/domain/values/thread.values";
 import { ProjectStorage } from "../../features/question-finder/services/projectStorage";
 import type { ScheduledHarvest } from "../../features/question-finder/workflows/scheduledHarvest";
 import { projectHarvestStub } from "../projectHarvest";

@@ -1,11 +1,11 @@
 import type {
   IngestionCounts,
   SourceMessage,
-} from "../../domain/harvest.values";
+} from "../../domain/values/harvest.values";
 import type {
   ReconciliationResult,
   ReconciliationWork,
-} from "../../domain/reconciliation.values";
+} from "../../domain/values/reconciliation.values";
 import { ingestMessage } from "./content";
 import { readCycle } from "./cycle";
 import { saveThread } from "./forumState";
