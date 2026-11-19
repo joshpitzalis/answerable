@@ -194,6 +194,7 @@ IDs refer to the replacement run's saved events; source changes can renumber mut
 | Fresh replay #1015/#1016/#1033 | A schema-eight snapshot may retain a removed source's older generation. Reading completed retained work must not invent an active cycle; a retained failure remains partial when a manual retry is queued within cooldown. Targeted mutation confirmation remains pending. |
 | Fresh replay #1396/#1407/#1423 | Actual reconciliation, archive, starter and comment acquisition journeys require successful funnel lines with `failed=0`. Targeted mutation confirmation remains pending. |
 | Fresh replay #1575 | The existing crash-before-activation proof now requires its recovery alarm thirty seconds in the future; merely checking that an alarm existed missed a past deadline. The after-activation crash still requires its immediate wake. Targeted mutation confirmation remains pending. |
+| Fresh replay #1608/#1610/#1614/#1615 | The existing held-IO concurrency journey checks that Refresh preserves the recovery wake, a duplicate alarm remains pending with the first runner, and only one acquisition (including discovery) occurs. Targeted mutation confirmation remains pending. |
 
 ## Interrupted run
 

@@ -77,6 +77,7 @@ describe("scheduled Harvest", () => {
     const started = Deferred.makeUnsafe<undefined>();
     const release = Deferred.makeUnsafe<undefined>();
     let calls = 0;
+    let acquisitionCalls = 0;
 
     const wire = Layer.succeed(
       Discord,
@@ -85,6 +86,7 @@ describe("scheduled Harvest", () => {
         hasReplyFrom: () => Effect.die("legacy"),
         sourcePage: (request) =>
           Effect.gen(function* () {
+            acquisitionCalls += 1;
             const discovery = emptyDiscovery(request);
 
             if (discovery !== undefined) {
@@ -100,19 +102,32 @@ describe("scheduled Harvest", () => {
       })
     );
 
-    await withScheduledHarvest(stub, time, wire, async (scheduled) => {
+    await withScheduledHarvest(stub, time, wire, async (scheduled, storage) => {
       await scheduled.activate(project);
       const first = scheduled.alarm(project);
       await Effect.runPromise(Deferred.await(started));
       const during = await scheduled.read(project);
-      const repeated = scheduled.alarm(project);
+      let repeatedCompleted = false;
+
+      const repeated = scheduled.alarm(project).then(() => {
+        repeatedCompleted = true;
+
+        return;
+      });
+
       await scheduled.request(project);
-      expect([during.questions, calls]).toStrictEqual([[], 1]);
+      expect([
+        during.questions,
+        calls,
+        await storage.getAlarm(),
+        repeatedCompleted,
+      ]).toStrictEqual([[], 1, time.now + 30_000, false]);
       await Effect.runPromise(Deferred.succeed(release, undefined));
       await Promise.all([first, repeated]);
+      const joinedCalls = acquisitionCalls;
       await finishTextDiscovery(scheduled, project, time);
       const completed = await scheduled.read(project);
-      expect(completed.questions).toHaveLength(1);
+      expect([completed.questions.length, joinedCalls]).toStrictEqual([1, 1]);
       await scheduled.request(project);
       const requested = await scheduled.read(project);
       expect(requested.harvest.nextEligibleAt).toBe(2_000_000_060_000);
