@@ -20,6 +20,28 @@ export class Corpus extends Context.Service<
       all: (projectSlug) => Effect.succeed(stubPostsFor(projectSlug)),
     })
   );
+
+  static readonly snapshot = (projectId: string) =>
+    Effect.gen(function* () {
+      const posts = yield* Corpus.use((corpus) => corpus.all(projectId));
+
+      const encoded = new TextEncoder().encode(
+        JSON.stringify(
+          posts.map(({ slug, title, body }) => [slug, title, body])
+        )
+      );
+
+      const digest = yield* Effect.promise(() =>
+        crypto.subtle.digest("SHA-256", encoded)
+      );
+
+      return {
+        posts,
+        revision: Array.from(new Uint8Array(digest), (byte) =>
+          byte.toString(16).padStart(2, "0")
+        ).join(""),
+      };
+    });
 }
 
 const EFFECT_POSTS: readonly Post[] = [

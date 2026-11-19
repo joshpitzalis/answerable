@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.shared.json",
+  "include": ["./src/**/*"],
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "./lib",
+    "tsBuildInfoFile": "./lib/tsconfig.tsbuildinfo",
+    "rootDir": "./src"
+  }
+}

@@ -1,11 +1,13 @@
 {
   "files.watcherExclude": {
+    "**/repos/**": true,
     "**/routeTree.gen.ts": true
   },
   "search.exclude": {
     "**/routeTree.gen.ts": true
   },
   "files.readonlyInclude": {
+    "**/repos/**": true,
     "**/routeTree.gen.ts": true
   },
   "[javascript]": {

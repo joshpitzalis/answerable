@@ -14,6 +14,8 @@ export default defineConfig({
     tsconfigPaths: true,
   },
   test: {
+    name: "unit",
     include: ["src/**/__tests__/**/*.test.{ts,tsx}"],
+    exclude: ["**/*.workers.test.ts"],
   },
 });

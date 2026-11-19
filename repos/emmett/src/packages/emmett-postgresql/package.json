@@ -1,0 +1,94 @@
+{
+  "name": "@event-driven-io/emmett-postgresql",
+  "version": "0.43.0-rc.3",
+  "type": "module",
+  "description": "Emmett - PostgreSQL - Event Sourcing development made simple",
+  "scripts": {
+    "build": "tsdown",
+    "build:ts": "tsc",
+    "build:ts:watch": "tsc -b --watch",
+    "test": "run-s test:unit test:int test:e2e",
+    "test:unit": "vitest run \".unit.spec\"",
+    "test:int": "vitest run \".int.spec\"",
+    "test:e2e": "vitest run \".e2e.spec\"",
+    "test:watch": "vitest",
+    "test:unit:watch": "vitest \".unit.spec\"",
+    "test:int:watch": "vitest \".int.spec\"",
+    "test:e2e:watch": "vitest \".e2e.spec\"",
+    "bench": "node --import tsx src/benchmarks/index.ts",
+    "bench:projections": "node --import tsx src/benchmarks/projectionRebuild.ts",
+    "flamegraph": "0x -D \"0x/{pid}\" -- node --import tsx src/benchmarks/ox.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/event-driven-io/emmett.git"
+  },
+  "keywords": [
+    "Event Sourcing"
+  ],
+  "author": "Oskar Dudycz",
+  "bugs": {
+    "url": "https://github.com/event-driven-io/emmett/issues"
+  },
+  "homepage": "https://event-driven-io.github.io/emmett/",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./pg": {
+      "import": {
+        "types": "./dist/pg.d.ts",
+        "default": "./dist/pg.js"
+      },
+      "require": {
+        "types": "./dist/pg.d.cts",
+        "default": "./dist/pg.cjs"
+      }
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "pg": [
+        "./dist/pg.d.ts"
+      ]
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "devDependencies": {
+    "@event-driven-io/emmett-testcontainers": "0.43.0-rc.3",
+    "@testcontainers/postgresql": "^12.2.1",
+    "@types/node": "^24.19.2",
+    "@types/pg": "^8.23.1",
+    "pg": "^8.23.1"
+  },
+  "dependencies": {
+    "uuid": "^14.0.3"
+  },
+  "peerDependencies": {
+    "@types/pg": "^8.23.1",
+    "pg": "^8.23.1",
+    "@event-driven-io/dumbo": "0.13.0-rc.2",
+    "@event-driven-io/emmett": "0.43.0-rc.3",
+    "@event-driven-io/pongo": "0.17.0-rc.2"
+  },
+  "peerDependenciesMeta": {
+    "@types/pg": {
+      "optional": true
+    },
+    "pg": {
+      "optional": true
+    }
+  }
+}

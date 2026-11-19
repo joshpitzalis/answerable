@@ -1,0 +1,105 @@
+{
+  "name": "@event-driven-io/emmett-sqlite",
+  "version": "0.43.0-rc.3",
+  "type": "module",
+  "description": "Emmett - SQLite - Event Sourcing development made simple",
+  "scripts": {
+    "build": "tsdown",
+    "build:ts": "tsc",
+    "build:ts:watch": "tsc -b --watch",
+    "test": "run-s test:unit test:int test:e2e",
+    "test:unit": "vitest run \".unit.spec\"",
+    "test:int": "vitest run \".int.spec\"",
+    "test:e2e": "vitest run \".e2e.spec\"",
+    "test:watch": "vitest",
+    "test:unit:watch": "vitest \".unit.spec\"",
+    "test:int:watch": "vitest \".int.spec\"",
+    "test:e2e:watch": "vitest \".e2e.spec\"",
+    "bench": "node --import tsx src/storage/sqlite3/benchmarks/index.ts",
+    "flamegraph": "0x -D \"0x/{pid}\" -- node --import tsx src/benchmarks/ox.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/event-driven-io/emmett.git"
+  },
+  "keywords": [
+    "Event Sourcing"
+  ],
+  "author": " ",
+  "bugs": {
+    "url": "https://github.com/event-driven-io/emmett/issues"
+  },
+  "homepage": "https://event-driven-io.github.io/emmett/",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./sqlite3": {
+      "import": {
+        "types": "./dist/sqlite3.d.ts",
+        "default": "./dist/sqlite3.js"
+      },
+      "require": {
+        "types": "./dist/sqlite3.d.cts",
+        "default": "./dist/sqlite3.cjs"
+      }
+    },
+    "./cloudflare": {
+      "import": {
+        "types": "./dist/cloudflare.d.ts",
+        "default": "./dist/cloudflare.js"
+      },
+      "require": {
+        "types": "./dist/cloudflare.d.cts",
+        "default": "./dist/cloudflare.cjs"
+      }
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "sqlite3": [
+        "./dist/sqlite3.d.ts"
+      ],
+      "cloudflare": [
+        "./dist/cloudflare.d.ts"
+      ]
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "uuid": "^14.0.3"
+  },
+  "peerDependencies": {
+    "@cloudflare/workers-types": "^5.20261025.1",
+    "sqlite3": "^6.0.1",
+    "@event-driven-io/dumbo": "0.13.0-rc.2",
+    "@event-driven-io/emmett": "0.43.0-rc.3",
+    "@event-driven-io/pongo": "0.17.0-rc.2"
+  },
+  "peerDependenciesMeta": {
+    "sqlite3": {
+      "optional": true
+    },
+    "@cloudflare/workers-types": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261025.1",
+    "@types/node": "^24.19.2",
+    "miniflare": "^4.20260730.0",
+    "sqlite3": "^6.0.1"
+  }
+}

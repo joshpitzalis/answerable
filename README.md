@@ -16,6 +16,8 @@ pnpm dev
 
 `pnpm dev` runs `alchemy dev` against real Cloudflare resources. Secrets are read from the gitignored `.env`.
 
+Each Project in `projects.config.ts` requires a unique, nonempty `id`. When updating an existing config, set each ID to its current slug once. Keep that ID when changing its label or route slug. Moving a Project to another Discord server requires a new identity or an explicit migration; never reuse its ID for a different server.
+
 ## Linting & Formatting
 
 This project uses [Ultracite](https://www.ultracite.ai/) (oxlint + oxfmt) for linting and formatting, with the vendored [anti-slop](https://github.com/dmmulroy/anti-slop) rules in `tools/oxlint/anti-slop/`:

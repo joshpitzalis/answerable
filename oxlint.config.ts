@@ -35,6 +35,7 @@ export default defineConfig({
     ".roo/**",
     ".windsurf/**",
     "tools/oxlint/anti-slop/**",
+    "repos/**",
     // Course material kept beside the app; it is not app code.
     "assets/**",
     "lessons/**",
@@ -42,7 +43,16 @@ export default defineConfig({
     ".stryker-tmp/**",
     "reports/**",
   ],
-  overrides: testOverrides,
+  overrides: [
+    ...testOverrides,
+    {
+      files: [
+        "src/features/question-finder/services/discord/handlers/readAccess.ts",
+      ],
+      // Discord permissions and intent flags are documented integer bitfields.
+      rules: { "no-bitwise": "off", "oxc/bad-bitwise-operator": "off" },
+    },
+  ],
   // Vendored from github.com/dmmulroy/anti-slop; see tools/oxlint/anti-slop/UPSTREAM.md.
   jsPlugins: [
     { name: "anti-slop", specifier: "./tools/oxlint/anti-slop/index.ts" },

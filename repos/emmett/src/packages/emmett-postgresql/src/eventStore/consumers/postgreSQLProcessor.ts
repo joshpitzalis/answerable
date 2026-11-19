@@ -1,0 +1,692 @@
+import {
+  dumbo,
+  type AnyDatabaseTransaction,
+  type DatabaseDriverType,
+  type SQLExecutor,
+} from '@event-driven-io/dumbo';
+import type {
+  PgClientConnection,
+  PgDriverType,
+  PgPool,
+  PgPoolClientConnection,
+} from '@event-driven-io/dumbo/pg';
+import type {
+  AnyCommand,
+  AnyEvent,
+  AnyMessage,
+  AnyRecordedMessageMetadata,
+  BatchRecordedMessageHandlerWithContext,
+  Checkpointer,
+  CurrentMessageProcessorPosition,
+  Event,
+  JSONSerializationOptions,
+  Message,
+  MessageHandlerContext,
+  MessageProcessingScope,
+  MessageProcessor,
+  PartialHandlerContext,
+  ProcessorHooks,
+  ProcessorLock,
+  ProcessorLockOptions,
+  ProjectorOptions,
+  ReactorOptions,
+  ReadEventMetadataWithGlobalPosition,
+  SingleMessageHandlerResult,
+  SingleRecordedMessageHandlerWithContext,
+  WorkflowProcessorContext,
+  WorkflowProcessorOptions,
+} from '@event-driven-io/emmett';
+import {
+  defaultProcessorPartition,
+  defaultProcessorVersion,
+  EmmettError,
+  getCheckpoint,
+  getProcessorInstanceId,
+  getProjectorId,
+  getWorkflowId,
+  inMemoryCheckpointer,
+  noopScope,
+  projector,
+  reactor,
+  unknownTag,
+  workflowProcessor,
+} from '@event-driven-io/emmett';
+import type pg from 'pg';
+import { pgEventStoreDriver, type PgEventStoreDriverOptions } from '../../pg';
+import type {
+  AnyPostgreSQLEventStoreDriver,
+  InferDumboConnectionFromEventStoreDriver,
+  InferDumboOptionsFromEventStoreDriver,
+  InferPoolFromEventStoreDriver,
+  InferTransactionFromEventStoreDriver,
+} from '../eventStoreDriver';
+import {
+  getPostgreSQLEventStore,
+  type PostgresEventStore,
+} from '../postgreSQLEventStore';
+import {
+  DefaultPostgreSQLProcessorLockPolicy,
+  isPostgreSQLProjectionWithSchema,
+  postgreSQLProcessorLock,
+  postgreSQLProjectionWithDatabaseSchemaName,
+  postgreSQLSchemaOf,
+  type LockAcquisitionPolicy,
+  type PostgreSQLProcessorLock,
+  type PostgreSQLProcessorLockOptions,
+  type PostgreSQLProjectionSchema,
+  type PostgreSQLSchemaOptions,
+} from '../projections';
+import {
+  eventStoreDatabaseSchema,
+  PostgreSQLEventStoreCheckpoint,
+  readProcessorCheckpoint,
+  storeProcessorCheckpoint,
+  type EventStoreSchemaMigrationOptions,
+} from '../schema';
+
+export type PostgreSQLProcessorHandlerContext<
+  Driver extends AnyPostgreSQLEventStoreDriver = AnyPostgreSQLEventStoreDriver,
+> = MessageHandlerContext<
+  {
+    partition: string;
+    execute: SQLExecutor;
+    driverType: DatabaseDriverType;
+    driver?: Driver;
+  } &
+    // TODO: Reconsider if it should be for all processors
+    EventStoreSchemaMigrationOptions,
+  {
+    connection: InferDumboConnectionFromEventStoreDriver<Driver>;
+    transaction: InferTransactionFromEventStoreDriver<Driver>;
+    pool: InferPoolFromEventStoreDriver<Driver>;
+    messageStore: PostgresEventStore;
+    connectionOptions?: InferDumboOptionsFromEventStoreDriver<Driver>;
+  }
+>;
+
+export type PostgreSQLProcessor<
+  MessageType extends Message = AnyMessage,
+  Driver extends AnyPostgreSQLEventStoreDriver = AnyPostgreSQLEventStoreDriver,
+> = MessageProcessor<
+  MessageType,
+  ReadEventMetadataWithGlobalPosition,
+  PostgreSQLProcessorHandlerContext<Driver>
+>;
+
+export type PostgreSQLProcessorEachMessageHandler<
+  MessageType extends Message = Message,
+  Driver extends AnyPostgreSQLEventStoreDriver = AnyPostgreSQLEventStoreDriver,
+> = SingleRecordedMessageHandlerWithContext<
+  MessageType,
+  ReadEventMetadataWithGlobalPosition,
+  PostgreSQLProcessorHandlerContext<Driver>
+>;
+
+export type PostgreSQLProcessorEachBatchHandler<
+  MessageType extends Message = Message,
+  Driver extends AnyPostgreSQLEventStoreDriver = AnyPostgreSQLEventStoreDriver,
+> = BatchRecordedMessageHandlerWithContext<
+  MessageType,
+  ReadEventMetadataWithGlobalPosition,
+  PostgreSQLProcessorHandlerContext<Driver>
+>;
+
+export type PostgreSQLProcessorStartFrom =
+  CurrentMessageProcessorPosition | 'CURRENT';
+
+type PostgreSQLProcessorPooledOptions =
+  | {
+      connector?: PgDriverType;
+      database?: string;
+      pooled: true;
+      pool: pg.Pool;
+    }
+  | {
+      connector?: PgDriverType;
+      database?: string;
+      pool: pg.Pool;
+    }
+  | {
+      connector?: PgDriverType;
+      database?: string;
+      pooled: true;
+    }
+  | {
+      connector?: PgDriverType;
+      database?: string;
+    };
+
+type PostgreSQLProcessorNotPooledOptions =
+  | {
+      connector?: PgDriverType;
+      database?: string;
+      pooled: false;
+      client: pg.Client;
+    }
+  | {
+      connector?: PgDriverType;
+      database?: string;
+      client: pg.Client;
+    }
+  | {
+      connector?: PgDriverType;
+      database?: string;
+      pooled: false;
+    }
+  | {
+      connector?: PgDriverType;
+      database?: string;
+      connection: PgPoolClientConnection | PgClientConnection;
+      pooled?: false;
+    }
+  | {
+      connector?: PgDriverType;
+      database?: string;
+      dumbo: PgPool;
+      pooled?: false;
+    };
+
+export type PostgreSQLProcessorConnectionOptions =
+  | ({
+      connectionString: string;
+    } & (
+      PostgreSQLProcessorPooledOptions | PostgreSQLProcessorNotPooledOptions
+    ))
+  | {
+      connectionString?: undefined;
+      dumbo: PgPool;
+    };
+
+export type PostgreSQLCheckpointer<
+  MessageType extends AnyMessage = AnyMessage,
+  Driver extends AnyPostgreSQLEventStoreDriver = AnyPostgreSQLEventStoreDriver,
+> = Checkpointer<
+  MessageType,
+  ReadEventMetadataWithGlobalPosition,
+  PostgreSQLProcessorHandlerContext<Driver>
+>;
+
+export const postgreSQLCheckpointer = <
+  MessageType extends Message = Message,
+  Driver extends AnyPostgreSQLEventStoreDriver = AnyPostgreSQLEventStoreDriver,
+>(): PostgreSQLCheckpointer<MessageType, Driver> => ({
+  read: async (options, context) => {
+    const result = await readProcessorCheckpoint(context.execute, {
+      ...options,
+      databaseSchemaName: context.migrationOptions?.databaseSchemaName,
+    });
+    const lastCheckpoint = result.lastProcessedCheckpoint;
+
+    return {
+      lastCheckpoint:
+        lastCheckpoint ===
+        PostgreSQLEventStoreCheckpoint.toProcessorCheckpoint(
+          PostgreSQLEventStoreCheckpoint.default,
+        )
+          ? null
+          : lastCheckpoint,
+    };
+  },
+  store: async (options, context) => {
+    const newCheckpoint = getCheckpoint(options.message);
+
+    const result = await storeProcessorCheckpoint(context.execute, {
+      lastProcessedCheckpoint: options.lastCheckpoint,
+      newCheckpoint,
+      processorId: options.processorId,
+      partition: options.partition,
+      version: options.version,
+      databaseSchemaName: context.migrationOptions?.databaseSchemaName,
+    });
+
+    return result.success
+      ? { success: true, newCheckpoint: result.newCheckpoint }
+      : result;
+  },
+});
+
+type PostgreSQLConnectionOptions<
+  Driver extends AnyPostgreSQLEventStoreDriver = AnyPostgreSQLEventStoreDriver,
+> = {
+  connectionOptions?: PostgreSQLProcessorConnectionOptions;
+  driver?: Driver;
+} & JSONSerializationOptions;
+
+type PostgreSQLProcessorOptionsBase<
+  Driver extends AnyPostgreSQLEventStoreDriver = AnyPostgreSQLEventStoreDriver,
+> = PostgreSQLConnectionOptions<Driver> & {
+  lock?: {
+    /** Defaults to the PostgreSQL processor lock backed by the message store */
+    lock?: ProcessorLock<PostgreSQLProcessorHandlerContext<Driver>>;
+    acquisitionPolicy?: LockAcquisitionPolicy;
+    timeoutSeconds?: number;
+  };
+  partition?: string;
+} & EventStoreSchemaMigrationOptions;
+export type PostgreSQLReactorOptions<
+  MessageType extends Message = Message,
+  MessagePayloadType extends AnyMessage = MessageType,
+  Driver extends AnyPostgreSQLEventStoreDriver = AnyPostgreSQLEventStoreDriver,
+> = ReactorOptions<
+  MessageType,
+  ReadEventMetadataWithGlobalPosition,
+  PostgreSQLProcessorHandlerContext<Driver>,
+  MessagePayloadType
+> &
+  PostgreSQLProcessorOptionsBase<Driver> &
+  PostgreSQLSchemaOptions;
+
+export type PostgreSQLProjectorOptions<
+  EventType extends AnyEvent = AnyEvent,
+  EventPayloadType extends Event = EventType,
+  Driver extends AnyPostgreSQLEventStoreDriver = AnyPostgreSQLEventStoreDriver,
+> = ProjectorOptions<
+  EventType,
+  ReadEventMetadataWithGlobalPosition,
+  PostgreSQLProcessorHandlerContext<Driver>,
+  EventPayloadType
+> &
+  PostgreSQLProcessorOptionsBase<Driver> &
+  EventStoreSchemaMigrationOptions;
+
+export type PostgreSQLWorkflowProcessorOptions<
+  Input extends AnyEvent | AnyCommand,
+  State,
+  Output extends AnyEvent | AnyCommand,
+  MetaDataType extends AnyRecordedMessageMetadata = AnyRecordedMessageMetadata,
+  HandlerContext extends WorkflowProcessorContext = WorkflowProcessorContext,
+  StoredMessage extends AnyEvent | AnyCommand = Output,
+  Driver extends AnyPostgreSQLEventStoreDriver = AnyPostgreSQLEventStoreDriver,
+> = WorkflowProcessorOptions<
+  Input,
+  State,
+  Output,
+  MetaDataType,
+  HandlerContext,
+  StoredMessage
+> &
+  PostgreSQLProcessorOptionsBase<Driver> &
+  PostgreSQLSchemaOptions;
+
+const postgreSQLProcessingScope = <
+  Driver extends AnyPostgreSQLEventStoreDriver = AnyPostgreSQLEventStoreDriver,
+>(options: {
+  pool: InferPoolFromEventStoreDriver<Driver> | null;
+  connectionOptions: InferDumboOptionsFromEventStoreDriver<Driver> | null;
+  driver?: Driver;
+  processorId: string;
+  partition: string;
+  migrationOptions?: EventStoreSchemaMigrationOptions['migrationOptions'];
+}): MessageProcessingScope<PostgreSQLProcessorHandlerContext<Driver>> => {
+  const processorConnectionOptions = options.connectionOptions;
+
+  const processorPool = options.pool;
+
+  const processingScope: MessageProcessingScope<
+    PostgreSQLProcessorHandlerContext<Driver>
+  > = async <Result = SingleMessageHandlerResult>(
+    handler: (
+      context: PostgreSQLProcessorHandlerContext<Driver>,
+    ) => Result | Promise<Result>,
+    partialContext: PartialHandlerContext<
+      PostgreSQLProcessorHandlerContext<Driver>
+    >,
+  ) => {
+    const session = partialContext?.session;
+
+    const { pool, connectionOptions } = processorPool
+      ? {
+          pool: processorPool,
+          connectionOptions: processorConnectionOptions ?? undefined,
+        }
+      : { pool: session?.pool, connectionOptions: session?.connectionOptions };
+
+    if (!pool)
+      throw new EmmettError(
+        `PostgreSQL processor '${options.processorId}' is missing a connection pool. Ensure that you passed connection options through options`,
+      );
+
+    return pool.withTransaction(async (transaction: AnyDatabaseTransaction) => {
+      const connection =
+        transaction.connection as InferDumboConnectionFromEventStoreDriver<Driver>;
+
+      return handler({
+        ...partialContext,
+        partition: options.partition,
+        execute: transaction.execute,
+        driverType: pool.driverType,
+        driver:
+          options.driver ??
+          partialContext?.driver ??
+          (pgEventStoreDriver as unknown as Driver),
+        session: {
+          ...partialContext?.session,
+          pool,
+          connectionOptions,
+          connection,
+          transaction:
+            transaction as InferTransactionFromEventStoreDriver<Driver>,
+          messageStore: getPostgreSQLEventStore({
+            driver: options.driver ?? pgEventStoreDriver,
+            connectionOptions: {
+              connection: connection as unknown as PgPoolClientConnection,
+            },
+            schema: {
+              ...options.migrationOptions,
+              autoMigration: 'None',
+            },
+          }),
+        },
+        migrationOptions: options.migrationOptions,
+        observabilityScope: partialContext?.observabilityScope ?? noopScope,
+      });
+    });
+  };
+
+  return processingScope;
+};
+
+const getProcessorPool = <
+  Driver extends AnyPostgreSQLEventStoreDriver = AnyPostgreSQLEventStoreDriver,
+>(
+  options: PostgreSQLConnectionOptions<Driver>,
+) => {
+  const poolOptions = {
+    ...(options.connectionOptions ? options.connectionOptions : {}),
+  };
+  const processorConnectionString =
+    'connectionString' in poolOptions
+      ? (poolOptions.connectionString ?? null)
+      : null;
+
+  const connectionOptions = processorConnectionString
+    ? ({
+        serialization: options.serialization,
+        ...(options.driver ?? pgEventStoreDriver).mapToDumboOptions({
+          connectionString: processorConnectionString,
+          connectionOptions: poolOptions,
+        } as PgEventStoreDriverOptions),
+      } as InferDumboOptionsFromEventStoreDriver<Driver>)
+    : null;
+
+  const processorPool = (
+    'dumbo' in poolOptions
+      ? poolOptions.dumbo
+      : connectionOptions
+        ? dumbo(connectionOptions)
+        : null
+  ) as InferPoolFromEventStoreDriver<Driver> | null;
+
+  return {
+    pool: processorPool,
+    connectionOptions,
+    close:
+      processorPool != null && !('dumbo' in poolOptions)
+        ? processorPool.close
+        : undefined,
+  };
+};
+
+const toProcessorLockOptions = <
+  Driver extends AnyPostgreSQLEventStoreDriver = AnyPostgreSQLEventStoreDriver,
+>(
+  processorLock: PostgreSQLProcessorLock,
+  lock: PostgreSQLProcessorOptionsBase<Driver>['lock'],
+): ProcessorLockOptions<PostgreSQLProcessorHandlerContext<Driver>> => ({
+  lock: lock?.lock ?? processorLock,
+  acquisitionPolicy:
+    lock?.acquisitionPolicy ?? DefaultPostgreSQLProcessorLockPolicy,
+});
+
+const setupPostgreSQLReactor = <
+  Driver extends AnyPostgreSQLEventStoreDriver = AnyPostgreSQLEventStoreDriver,
+>(
+  options: PostgreSQLProcessorOptionsBase<Driver> & {
+    processorId: string;
+    processorInstanceId: string;
+    version: number;
+    partition: string;
+    hooks?: ProcessorHooks<PostgreSQLProcessorHandlerContext<Driver>>;
+    projection?: PostgreSQLProcessorLockOptions['projection'];
+    schemaOf: (
+      migrationOptions: NonNullable<
+        EventStoreSchemaMigrationOptions['migrationOptions']
+      >,
+    ) => PostgreSQLProjectionSchema | undefined;
+  },
+) => {
+  const { processorId, processorInstanceId, version, partition, lock } =
+    options;
+
+  const { pool, connectionOptions, close } = getProcessorPool(options);
+
+  const processorLock = postgreSQLProcessorLock({
+    databaseSchemaName: options.migrationOptions?.databaseSchemaName,
+    processorId,
+    version,
+    partition,
+    processorInstanceId,
+    projection: options.projection,
+    lockTimeoutSeconds: lock?.timeoutSeconds,
+  });
+
+  const migrationOptions = {
+    ...options.migrationOptions,
+    ...eventStoreDatabaseSchema(options.migrationOptions),
+  };
+  const schema = options.schemaOf(migrationOptions);
+
+  const hooks: ProcessorHooks<PostgreSQLProcessorHandlerContext<Driver>> = {
+    ...(options.hooks ?? {}),
+    onInit:
+      schema || options.hooks?.onInit
+        ? async (context) => {
+            const schemaContext = { ...context, migrationOptions };
+            if (schema) {
+              const autoMigration =
+                migrationOptions.autoMigration ?? 'CreateOrUpdate';
+              if (autoMigration === 'EnsureMigrated')
+                await schema.ensureMigrated(schemaContext);
+              else if (autoMigration === 'CreateOrUpdate')
+                await schema.migrate(schemaContext);
+            }
+            if (options.hooks?.onInit)
+              await options.hooks.onInit(schemaContext);
+          }
+        : undefined,
+    onClose: close
+      ? async (context) => {
+          if (options.hooks?.onClose) await options.hooks?.onClose(context);
+          if (close) await close();
+        }
+      : options.hooks?.onClose,
+  };
+
+  return {
+    hooks,
+    lock: toProcessorLockOptions(processorLock, lock),
+    processingScope: postgreSQLProcessingScope<Driver>({
+      pool,
+      connectionOptions,
+      driver: options.driver,
+      processorId,
+      partition,
+      migrationOptions,
+    }),
+  };
+};
+
+export const postgreSQLProjector = <
+  EventType extends Event = Event,
+  EventPayloadType extends Event = EventType,
+  Driver extends AnyPostgreSQLEventStoreDriver = AnyPostgreSQLEventStoreDriver,
+>(
+  options: PostgreSQLProjectorOptions<EventType, EventPayloadType, Driver>,
+): PostgreSQLProcessor<EventType, Driver> => {
+  const {
+    processorId = getProjectorId({
+      projectionName: options.projection.name ?? 'unknown',
+    }),
+    processorInstanceId = getProcessorInstanceId(processorId),
+    version = defaultProcessorVersion,
+    partition = defaultProcessorPartition,
+  } = options;
+
+  const reactor = setupPostgreSQLReactor<Driver>({
+    ...options,
+    processorId,
+    processorInstanceId,
+    version,
+    partition,
+    projection: {
+      name: options.projection.name ?? unknownTag,
+      kind: options.projection.kind ?? unknownTag,
+      version: options.projection.version ?? version,
+      handlingType: 'async' as const,
+    },
+    hooks: {
+      ...(options.hooks ?? {}),
+      onInit:
+        options.projection.init !== undefined || options.hooks?.onInit
+          ? async (context) => {
+              if (options.projection.init)
+                await options.projection.init({
+                  version: options.projection.version ?? version,
+                  status: 'active',
+                  registrationType: 'async',
+                  context,
+                });
+              if (options.hooks?.onInit) await options.hooks.onInit(context);
+            }
+          : undefined,
+    },
+    schemaOf: (migrationOptions) => {
+      const projection = postgreSQLProjectionWithDatabaseSchemaName(
+        options.projection,
+        migrationOptions.projectionsDatabaseSchemaName,
+      );
+      return isPostgreSQLProjectionWithSchema(projection)
+        ? projection.schema
+        : undefined;
+    },
+  });
+
+  return projector<
+    EventType,
+    ReadEventMetadataWithGlobalPosition,
+    PostgreSQLProcessorHandlerContext<Driver>,
+    EventPayloadType
+  >({
+    ...options,
+    processorId,
+    processorInstanceId,
+    version,
+    partition,
+    ...reactor,
+    checkpoints:
+      options.checkpoints === 'DISABLED'
+        ? inMemoryCheckpointer<EventType>()
+        : postgreSQLCheckpointer<EventType, Driver>(),
+  });
+};
+
+export const postgreSQLWorkflowProcessor = <
+  Input extends AnyEvent | AnyCommand,
+  State,
+  Output extends AnyEvent | AnyCommand,
+  MetaDataType extends AnyRecordedMessageMetadata = AnyRecordedMessageMetadata,
+  Driver extends AnyPostgreSQLEventStoreDriver = AnyPostgreSQLEventStoreDriver,
+  HandlerContext extends PostgreSQLProcessorHandlerContext<Driver> &
+    WorkflowProcessorContext = PostgreSQLProcessorHandlerContext<Driver> &
+    WorkflowProcessorContext,
+  StoredMessage extends AnyEvent | AnyCommand = Output,
+>(
+  options: PostgreSQLWorkflowProcessorOptions<
+    Input,
+    State,
+    Output,
+    MetaDataType,
+    HandlerContext,
+    StoredMessage,
+    Driver
+  >,
+): PostgreSQLProcessor<Input | Output, Driver> => {
+  const {
+    processorId = options.processorId ??
+      getWorkflowId({
+        workflowName: options.workflow.name ?? 'unknown',
+      }),
+    processorInstanceId = getProcessorInstanceId(processorId),
+    version = defaultProcessorVersion,
+    partition = defaultProcessorPartition,
+  } = options;
+
+  const reactor = setupPostgreSQLReactor<Driver>({
+    ...options,
+    processorId,
+    processorInstanceId,
+    version,
+    partition,
+    hooks: options.hooks as unknown as ProcessorHooks<
+      PostgreSQLProcessorHandlerContext<Driver>
+    >,
+    schemaOf: (migrationOptions) =>
+      postgreSQLSchemaOf(options, migrationOptions.databaseSchemaName),
+  });
+
+  return workflowProcessor({
+    ...options,
+    processorId,
+    processorInstanceId,
+    version,
+    partition,
+    hooks: reactor.hooks,
+    lock: reactor.lock,
+    processingScope:
+      reactor.processingScope as unknown as MessageProcessingScope<HandlerContext>,
+    checkpoints:
+      options.checkpoints === 'DISABLED'
+        ? inMemoryCheckpointer<Input | Output, MetaDataType, HandlerContext>()
+        : (postgreSQLCheckpointer<Input | Output>() as unknown as Checkpointer<
+            Input | Output,
+            MetaDataType,
+            HandlerContext
+          >),
+  }) as PostgreSQLProcessor<Input | Output, Driver>;
+};
+
+export const postgreSQLReactor = <
+  MessageType extends AnyMessage = AnyMessage,
+  MessagePayloadType extends AnyMessage = MessageType,
+  Driver extends AnyPostgreSQLEventStoreDriver = AnyPostgreSQLEventStoreDriver,
+>(
+  options: PostgreSQLReactorOptions<MessageType, MessagePayloadType, Driver>,
+): PostgreSQLProcessor<MessageType, Driver> => {
+  const {
+    processorId = options.processorId,
+    processorInstanceId = getProcessorInstanceId(processorId),
+    version = defaultProcessorVersion,
+    partition = defaultProcessorPartition,
+  } = options;
+
+  return reactor({
+    ...options,
+    processorId,
+    processorInstanceId,
+    version,
+    partition,
+    ...setupPostgreSQLReactor<Driver>({
+      ...options,
+      processorId,
+      processorInstanceId,
+      version,
+      partition,
+      schemaOf: (migrationOptions) =>
+        postgreSQLSchemaOf(options, migrationOptions.databaseSchemaName),
+    }),
+    checkpoints:
+      options.checkpoints === 'DISABLED'
+        ? inMemoryCheckpointer<MessageType>()
+        : postgreSQLCheckpointer<MessageType, Driver>(),
+  });
+};

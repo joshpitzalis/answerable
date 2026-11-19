@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.shared.json",
+  "include": ["./src/**/*", "../emmett/src/testing/utils.ts"],
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "./lib" /* Redirect output structure to the directory. */,
+    "tsBuildInfoFile": "./lib/tsconfig.tsbuildinfo",
+    "rootDir": "./src",
+    "paths": {
+      "@event-driven-io/emmett": ["../emmett/src"]
+    }
+  },
+  "references": [
+    {
+      "path": "../emmett/"
+    }
+  ]
+}

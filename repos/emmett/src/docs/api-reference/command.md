@@ -1,0 +1,352 @@
+---
+documentationType: reference
+outline: deep
+---
+
+# Command
+
+::: warning
+We created this page with the help of the GenAI tool.
+
+We're currently double-checking it to ensure the information is 100% correct and free of hallucinations.
+:::
+
+Commands represent the intention to perform a business operation. They are requests directed at a specific handler.
+
+## Overview
+
+Commands differ from events in key ways:
+
+| Aspect           | Command              | Event                |
+| ---------------- | -------------------- | -------------------- |
+| **Tense**        | Imperative (do this) | Past (this happened) |
+| **Outcome**      | May be rejected      | Immutable fact       |
+| **Naming**       | `AddProductItem`     | `ProductItemAdded`   |
+| **Multiplicity** | Single handler       | Multiple subscribers |
+
+Commands express intent. The handler decides whether to accept or reject the request.
+
+## Type Definition
+
+```typescript
+type Command<
+  CommandType extends string = string,
+  CommandData extends DefaultRecord = DefaultRecord,
+  CommandMetaData extends DefaultRecord | undefined = undefined,
+  SchemaVersion extends number = string extends CommandType ? number : 1,
+> = Readonly<{
+  type: CommandType;
+  data: CommandData;
+  metadata?: CommandMetaData | DefaultCommandMetadata;
+  kind?: 'Command';
+  schemaVersion?: SchemaVersion;
+}>;
+
+type DefaultCommandMetadata = { now: Date };
+```
+
+| Property        | Type         | Description                                                                                                                                        |
+| --------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type`          | `string`     | Unique command type name (e.g., `'AddProductItem'`)                                                                                                |
+| `data`          | `object`     | Request payload (must be a record, not primitive)                                                                                                  |
+| `metadata`      | `object?`    | Infrastructure data (defaults to `{ now: Date }`)                                                                                                  |
+| `kind`          | `'Command'?` | Discriminator for union types with Events                                                                                                          |
+| `schemaVersion` | `number?`    | Version of the command schema. Missing means `1`. Required when the type declares a version other than `1`. See [Schema Version](#schema-version). |
+
+## Basic Usage
+
+### Defining Command Types
+
+<<< @/snippets/api/command.ts#command-type
+
+### Grouping commands into Union Types
+
+Define all commands for a specific business process as a discriminated union:
+
+```typescript
+import type { Command } from '@event-driven-io/emmett';
+
+type ShoppingCartCommand =
+  | Command<
+      'OpenShoppingCart',
+      {
+        cartId: string;
+        clientId: string;
+      }
+    >
+  | Command<
+      'AddProductItem',
+      {
+        productId: string;
+        quantity: number;
+      }
+    >
+  | Command<
+      'RemoveProductItem',
+      {
+        productId: string;
+        quantity: number;
+      }
+    >
+  | Command<'ConfirmShoppingCart', {}>
+  | Command<'CancelShoppingCart', {}>;
+```
+
+### Creating Commands with Factory
+
+You can either use a regular typescript setup or use the `command` factory function for runtime command creation:
+
+```typescript
+import { command } from '@event-driven-io/emmett';
+
+const addProduct = command<AddProductItem>('AddProductItem', {
+  productId: 'shoes-1',
+  quantity: 2,
+});
+// Result: { type: 'AddProductItem', data: {...}, kind: 'Command' }
+
+// With timestamp metadata (default)
+const addProductWithTime = command<AddProductItem>(
+  'AddProductItem',
+  { productId: 'shoes-1', quantity: 2 },
+  { now: new Date() },
+);
+```
+
+## Commands with Custom Metadata
+
+Metadata carries cross-cutting concerns:
+
+```typescript
+type UserCommandMetadata = {
+  userId: string;
+  correlationId: string;
+  now: Date;
+};
+
+type AuthenticatedAddProductItem = Command<
+  'AddProductItem',
+  { productId: string; quantity: number },
+  UserCommandMetadata
+>;
+
+const authenticatedCommand = command<AuthenticatedAddProductItem>(
+  'AddProductItem',
+  { productId: 'shoes-1', quantity: 2 },
+  { userId: 'user-123', correlationId: 'req-456', now: new Date() },
+);
+```
+
+## Schema Version
+
+Commands have a schema version with the same rules as [events](/api-reference/event#schema-version). A command without `schemaVersion` is version `1`. When you change the shape of a command, keep its type name and declare the next version as the fourth type parameter of `Command`, after the metadata type (`undefined` when there is none):
+
+<<< @./../packages/emmett/src/typing/messageSchemaVersion.unit.spec.ts#command-schema-version-types
+
+A command of a type declared with a version other than `1` must set `schemaVersion`, so a missing one fails to compile:
+
+<<< @./../packages/emmett/src/typing/messageSchemaVersion.unit.spec.ts#command-schema-version-literal
+
+Versions of the same command form a discriminated union, so code that gets either version can switch on `schemaVersion` without casts:
+
+<<< @./../packages/emmett/src/typing/messageSchemaVersion.unit.spec.ts#command-schema-version-switch
+
+If you use the optional `command` factory, pass the version as its last argument, after the metadata when there is any:
+
+<<< @./../packages/emmett/src/typing/messageSchemaVersion.unit.spec.ts#command-schema-version-factory
+
+The factory takes a single command type. With a union of versions as the type argument, the version is not required, and without it the result is version `1`.
+
+When a command is stored, for example by a workflow, it is read back with `schemaVersion` set, next to the command and not in `metadata`.
+
+## Commands vs Events
+
+Commands and events work together in the Decider pattern:
+
+```typescript
+// Command: Request to add a product
+type AddProductItem = Command<
+  'AddProductItem',
+  {
+    productId: string;
+    quantity: number;
+  }
+>;
+
+// Event: Result of successful command
+type ProductItemAdded = Event<
+  'ProductItemAdded',
+  {
+    productId: string;
+    quantity: number;
+    price: number; // Enriched during handling
+  }
+>;
+
+// Decider decides command → events
+const decide = (
+  command: AddProductItem,
+  state: ShoppingCart,
+): ProductItemAdded[] => {
+  if (state.status !== 'Open') {
+    throw new IllegalStateError('Cart is not open');
+  }
+
+  return [
+    {
+      type: 'ProductItemAdded',
+      data: {
+        productId: command.data.productId,
+        quantity: command.data.quantity,
+        price: lookupPrice(command.data.productId),
+      },
+    },
+  ];
+};
+```
+
+## Utility Types
+
+### Extracting Command Properties
+
+```typescript
+import type {
+  CommandTypeOf,
+  CommandDataOf,
+  CommandMetaDataOf,
+} from '@event-driven-io/emmett';
+
+type AddProductItem = Command<'AddProductItem', { productId: string }>;
+
+type CmdType = CommandTypeOf<AddProductItem>; // 'AddProductItem'
+type CmdData = CommandDataOf<AddProductItem>; // { productId: string }
+type CmdMeta = CommandMetaDataOf<AddProductItem>; // undefined
+```
+
+### Any Command
+
+For generic handlers:
+
+```typescript
+import type { AnyCommand } from '@event-driven-io/emmett';
+
+function logCommand(command: AnyCommand): void {
+  console.log(`Command: ${command.type}`, command.data);
+}
+```
+
+## Command Handling Patterns
+
+### Direct Handler
+
+```typescript
+import { DeciderCommandHandler } from '@event-driven-io/emmett';
+
+const handle = DeciderCommandHandler(eventStore, {
+  decide,
+  evolve,
+  initialState,
+  mapToStreamId: (command) => `shopping_cart-${command.data.cartId}`,
+});
+
+await handle({
+  type: 'AddProductItem',
+  data: { cartId: 'cart-123', productId: 'shoes-1', quantity: 2 },
+});
+```
+
+### With Expected Version (Optimistic Concurrency)
+
+```typescript
+await handle(
+  {
+    type: 'AddProductItem',
+    data: { cartId: 'cart-123', productId: 'shoes-1', quantity: 2 },
+  },
+  { expectedStreamVersion: 5n },
+);
+```
+
+## Best Practices
+
+### 1. Use Imperative Names
+
+Commands express intent:
+
+```typescript
+// ✅ Good: Imperative
+type AddProductItem = Command<'AddProductItem', {...}>;
+type ConfirmOrder = Command<'ConfirmOrder', {...}>;
+
+// ❌ Bad: Past tense (these are events)
+type ProductItemAdded = Command<'ProductItemAdded', {...}>;
+```
+
+### 2. Include Target Identity
+
+Commands must identify their target:
+
+```typescript
+// ✅ Good: Clear target
+type AddProductItem = Command<
+  'AddProductItem',
+  {
+    cartId: string; // Target aggregate
+    productId: string;
+    quantity: number;
+  }
+>;
+
+// ❌ Bad: Missing target
+type AddProductItem = Command<
+  'AddProductItem',
+  {
+    productId: string;
+    quantity: number;
+    // Which cart?
+  }
+>;
+```
+
+### 3. Keep Commands Focused
+
+One intent per command:
+
+```typescript
+// ✅ Good: Single responsibility
+type AddProductItem = Command<'AddProductItem', {...}>;
+type ApplyDiscount = Command<'ApplyDiscount', {...}>;
+
+// ❌ Bad: Multiple operations
+type AddProductItemAndApplyDiscount = Command<'AddProductItemAndApplyDiscount', {...}>;
+```
+
+### 4. Validate at Boundaries
+
+Validate command data before handling:
+
+```typescript
+const handle = async (request: Request) => {
+  const data = await request.json();
+
+  // Validate at boundary
+  if (data.quantity <= 0) {
+    throw new ValidationError('Quantity must be positive');
+  }
+
+  // Create command with valid data
+  const cmd = command<AddProductItem>('AddProductItem', data);
+  await handler(cmd);
+};
+```
+
+## Type Source
+
+<<< @./../packages/emmett/src/typing/command.ts
+
+## See Also
+
+- [Getting Started - Commands](/getting-started#commands)
+- [Event](/api-reference/event) - Facts produced by commands
+- [Command Handler](/api-reference/commandhandler) - Processing commands
+- [Decider](/api-reference/decider) - Pattern combining commands and events

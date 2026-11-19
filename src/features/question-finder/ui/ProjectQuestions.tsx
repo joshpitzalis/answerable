@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 
-import type { Project, QuestionsReply } from "../domain";
+import type { Project } from "../domain";
+import type { StoredQuestionsReply } from "../domain/values/harvest.values";
 import { createQuestionsMachine } from "./questionsMachine";
 import { QuestionsView } from "./QuestionsView";
 
@@ -8,15 +9,24 @@ import { QuestionsView } from "./QuestionsView";
 export const ProjectQuestions = ({
   project,
   load,
+  activate,
+  refresh,
 }: {
   project: Project;
-  load: (slug: string) => Promise<QuestionsReply>;
+  load: (slug: string) => Promise<StoredQuestionsReply>;
+  activate: (slug: string) => Promise<StoredQuestionsReply>;
+  refresh: (slug: string) => Promise<StoredQuestionsReply>;
 }) => {
   // The machine is a definition; the caller keys this component by slug, so each
   // visit to a Project mounts its own actor and loads again.
   const machine = useMemo(
-    () => createQuestionsMachine(() => load(project.slug)),
-    [project.slug, load]
+    () =>
+      createQuestionsMachine({
+        load: () => load(project.slug),
+        activate: () => activate(project.slug),
+        refresh: () => refresh(project.slug),
+      }),
+    [project.slug, load, activate, refresh]
   );
 
   return (

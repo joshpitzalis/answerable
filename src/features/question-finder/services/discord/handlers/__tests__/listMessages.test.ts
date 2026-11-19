@@ -15,6 +15,29 @@ const failureOf = (fetch: typeof globalThis.fetch) =>
   Effect.runPromise(Effect.flip(listMessages(PATH, "secret", fetch)));
 
 describe(listMessages, () => {
+  it("keeps the HTTP failure status independent of extra error-body fields", async () => {
+    const failure = await failureOf(
+      respondWith(
+        Response.json(
+          {
+            code: 10_008,
+            status: 200,
+            reason: "Untrusted body detail",
+          },
+          { status: 404 }
+        )
+      )
+    );
+
+    expect(failure).toStrictEqual(
+      new DiscordFailed({
+        code: 10_008,
+        status: 404,
+        reason: "GET /channels/1/messages returned 404",
+      })
+    );
+  });
+
   it("sends the token to the Discord API and decodes the body", async () => {
     const calls: { url: string; authorization: string | null }[] = [];
 
@@ -56,7 +79,10 @@ describe(listMessages, () => {
     );
 
     expect(failure).toStrictEqual(
-      new DiscordFailed({ reason: "GET /channels/1/messages returned 401" })
+      new DiscordFailed({
+        reason: "GET /channels/1/messages returned 401",
+        status: 401,
+      })
     );
   });
 
@@ -71,7 +97,7 @@ describe(listMessages, () => {
     );
 
     expect(failure).toStrictEqual(
-      new DiscordRateLimited({ retryAfterMs: 2500 })
+      new DiscordRateLimited({ retryAfterMs: 2500, global: false })
     );
     expect(failure._tag).toBe("DiscordRateLimited");
   });
@@ -87,7 +113,10 @@ describe(listMessages, () => {
     );
 
     expect(failure).toStrictEqual(
-      new DiscordFailed({ reason: "GET /channels/1/messages returned 500" })
+      new DiscordFailed({
+        reason: "GET /channels/1/messages returned 500",
+        status: 500,
+      })
     );
     expect(failure._tag).toBe("DiscordFailed");
   });
@@ -103,7 +132,7 @@ describe(listMessages, () => {
     );
 
     expect(failure).toStrictEqual(
-      new DiscordRateLimited({ retryAfterMs: 3000 })
+      new DiscordRateLimited({ retryAfterMs: 3000, global: false })
     );
   });
 
@@ -113,7 +142,40 @@ describe(listMessages, () => {
     );
 
     expect(failure).toStrictEqual(
-      new DiscordFailed({ reason: "GET /channels/1/messages returned 429" })
+      new DiscordFailed({
+        reason: "GET /channels/1/messages returned 429",
+        status: 429,
+      })
+    );
+  });
+
+  it("preserves Discord's global pause scope", async () => {
+    const failure = await failureOf(
+      respondWith(
+        Response.json({ retry_after: 4.5, global: true }, { status: 429 })
+      )
+    );
+
+    expect(failure).toStrictEqual(
+      new DiscordRateLimited({ retryAfterMs: 4500, global: true })
+    );
+  });
+
+  it.each([
+    ["X-RateLimit-Global", "true"],
+    ["X-RateLimit-Scope", "global"],
+  ])("honors global pause scope from %s", async (header, value) => {
+    const failure = await failureOf(
+      respondWith(
+        Response.json(
+          { retry_after: 1.25 },
+          { headers: { [header]: value }, status: 429 }
+        )
+      )
+    );
+
+    expect(failure).toStrictEqual(
+      new DiscordRateLimited({ retryAfterMs: 1250, global: true })
     );
   });
 

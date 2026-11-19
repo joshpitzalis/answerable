@@ -24,6 +24,7 @@ const harvestQuestions = async (...args: Parameters<typeof harvestReport>) => {
 };
 
 const XSTATE: Project = {
+  id: "xstate",
   channels: [
     { id: "x1", name: "xstate-help" },
     { id: "x2", name: "xstate-chat" },
@@ -254,7 +255,9 @@ describe("a rate-limited Channel", () => {
   it("shares the 2-retry budget between its steps", async () => {
     const wire = fakeDiscord({
       channels: {
-        x1: [{ content: "How do actors get stopped?", id: "100" }],
+        x1: [
+          { content: "How do actors get stopped?", id: "100", threadId: "100" },
+        ],
         x2: [],
       },
       limited: {
@@ -644,7 +647,11 @@ describe(harvestQuestions, () => {
   it("leaves the cursor where it was when a step before saving fails", async () => {
     const wire = fakeDiscord({
       broken: ["100"],
-      channels: { x1: [{ content: "How do actors get stopped?", id: "100" }] },
+      channels: {
+        x1: [
+          { content: "How do actors get stopped?", id: "100", threadId: "100" },
+        ],
+      },
     });
 
     const runtime = runtimeOver(wire.fetch);
@@ -841,8 +848,12 @@ describe(harvestQuestions, () => {
     const wire = fakeDiscord({
       channels: {
         x1: [
-          { content: "How do actors get stopped?", id: "100" },
-          { content: "Why are machine actors lazy?", id: "200" },
+          { content: "How do actors get stopped?", id: "100", threadId: "100" },
+          {
+            content: "Why are machine actors lazy?",
+            id: "200",
+            threadId: "200",
+          },
         ],
         x2: [],
       },
@@ -866,7 +877,11 @@ describe("a Harvest's funnel", () => {
           { content: "How do actors get stopped?", id: "100" },
           { content: "Actors are great.", id: "200" },
           { content: "What is the best pizza topping?", id: "300" },
-          { content: "Why are machine actors lazy?", id: "400" },
+          {
+            content: "Why are machine actors lazy?",
+            id: "400",
+            threadId: "400",
+          },
         ],
         x2: [],
       },
@@ -941,7 +956,11 @@ describe("a Harvest's funnel", () => {
   it("keeps the counts a Channel reached when a later step fails", async () => {
     const wire = fakeDiscord({
       broken: ["100"],
-      channels: { x1: [{ content: "How do actors get stopped?", id: "100" }] },
+      channels: {
+        x1: [
+          { content: "How do actors get stopped?", id: "100", threadId: "100" },
+        ],
+      },
     });
 
     const { funnels } = await harvestReport(runtimeOver(wire.fetch), {

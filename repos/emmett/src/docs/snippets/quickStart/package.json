@@ -1,0 +1,19 @@
+{
+  "name": "emmett-quick-intro",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "",
+  "scripts": {
+    "start": "tsx ./index.ts"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@event-driven-io/emmett": "0.43.0-rc.3"
+  }
+}

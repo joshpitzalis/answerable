@@ -1,0 +1,205 @@
+import {
+  assertDeepEqual,
+  assertEqual,
+  assertIsNotNull,
+  type ReadEvent,
+} from '@event-driven-io/emmett';
+import {
+  getPostgreSQLEventStore,
+  pongoSingleStreamProjection,
+  postgreSQLProjection,
+  type PostgresEventStore,
+} from '@event-driven-io/emmett-postgresql';
+import { pongoClient, type PongoClient } from '@event-driven-io/pongo';
+import { pgDriver } from '@event-driven-io/pongo/pg';
+import { v4 as uuid } from 'uuid';
+import { afterAll, describe, expect, it } from 'vitest';
+import {
+  testAggregateStream,
+  testAppendToStream,
+  testCommandHandling,
+  testConsumerSchemaVersion,
+  testSchemaVersion,
+  testStreamExists,
+  type EventStoreFactory,
+} from '../features';
+import type {
+  DiscountApplied,
+  PricedProductItem,
+  ProductItemAdded,
+  ShoppingCartEvent,
+} from '../shoppingCart.domain';
+import { pgEventStoreDriver } from '@event-driven-io/emmett-postgresql/pg';
+import {
+  sharedPostgreSQLDatabase,
+  type PostgreSQLTestDatabase,
+} from '../../testing/postgreSQLTestDatabase';
+
+describe('PostgreSQLEventStore', () => {
+  let eventStore: PostgresEventStore;
+  let pongo: PongoClient;
+  const resources: {
+    database: PostgreSQLTestDatabase;
+    eventStore: PostgresEventStore;
+    pongo: PongoClient;
+  }[] = [];
+
+  const eventStoreFactory: EventStoreFactory = async () => {
+    const database = await sharedPostgreSQLDatabase();
+    const connectionString = database.connectionString;
+    eventStore = getPostgreSQLEventStore({
+      driver: pgEventStoreDriver,
+      connectionString: connectionString,
+      projections: [
+        { type: 'inline', projection: shoppingCartShortInfoProjection },
+        { type: 'inline', projection: customProjection },
+      ],
+    });
+    pongo = pongoClient({
+      connectionString,
+      driver: pgDriver,
+      connectionOptions: {
+        transactionOptions: {
+          allowNestedTransactions: true,
+        },
+      },
+    });
+    resources.push({ database, eventStore, pongo });
+    return eventStore;
+  };
+
+  afterAll(async () => {
+    try {
+      for (const resource of resources) {
+        await resource.eventStore.close();
+        await resource.pongo.close();
+        await resource.database.close();
+      }
+    } catch (error) {
+      console.log(error);
+    }
+  });
+
+  testAggregateStream(eventStoreFactory, {
+    getInitialIndex: () => 1n,
+  });
+
+  testCommandHandling(eventStoreFactory, {
+    getInitialIndex: () => 1n,
+  });
+
+  testAppendToStream(eventStoreFactory);
+
+  testStreamExists(eventStoreFactory);
+
+  const storeMetadata = {
+    correlationId: expect.any(String) as unknown,
+    causationId: expect.any(String) as unknown,
+    traceId: expect.any(String) as unknown,
+    spanId: expect.any(String) as unknown,
+    checkpoint: expect.any(String) as unknown,
+    globalPosition: expect.any(String) as unknown,
+  };
+
+  testSchemaVersion(eventStoreFactory, {
+    getInitialIndex: () => 1n,
+    storeMetadata,
+  });
+
+  testConsumerSchemaVersion(eventStoreFactory, {
+    getInitialIndex: () => 1n,
+    storeMetadata,
+  });
+
+  void it('should append events correctly using appendEvent function', async () => {
+    const productItem: PricedProductItem = {
+      productId: 'p123',
+      quantity: 10,
+      price: 3,
+    };
+    const discount = 10;
+    const shoppingCartId = `shopping_cart-${uuid()}`;
+    handledEventsInCustomProjection = [];
+
+    await eventStore.appendToStream<ShoppingCartEvent>(shoppingCartId, [
+      { type: 'ProductItemAdded', data: { productItem } },
+    ]);
+    await eventStore.appendToStream<ShoppingCartEvent>(shoppingCartId, [
+      { type: 'ProductItemAdded', data: { productItem } },
+    ]);
+    await eventStore.appendToStream<ShoppingCartEvent>(shoppingCartId, [
+      {
+        type: 'DiscountApplied',
+        data: { percent: discount, couponId: uuid() },
+      },
+    ]);
+
+    const shoppingCartShortInfo = pongo
+      .db()
+      .collection<ShoppingCartShortInfo>(shoppingCartShortInfoCollectionName);
+
+    const document = await shoppingCartShortInfo.findOne({
+      _id: shoppingCartId,
+    });
+    assertIsNotNull(document);
+    assertDeepEqual(
+      { ...document, _id: shoppingCartId },
+      {
+        _id: shoppingCartId,
+        productItemsCount: 20,
+        totalAmount: 54,
+        _version: 3n,
+      },
+    );
+
+    assertEqual(3, handledEventsInCustomProjection.length);
+  });
+});
+
+type ShoppingCartShortInfo = {
+  productItemsCount: number;
+  totalAmount: number;
+};
+
+const shoppingCartShortInfoCollectionName = 'shoppingCartShortInfo';
+
+const evolve = (
+  document: ShoppingCartShortInfo | null,
+  { type, data: event }: ProductItemAdded | DiscountApplied,
+): ShoppingCartShortInfo => {
+  document = document ?? { productItemsCount: 0, totalAmount: 0 };
+
+  switch (type) {
+    case 'ProductItemAdded':
+      return {
+        totalAmount:
+          document.totalAmount +
+          event.productItem.price * event.productItem.quantity,
+        productItemsCount:
+          document.productItemsCount + event.productItem.quantity,
+      };
+    case 'DiscountApplied':
+      return {
+        ...document,
+        totalAmount: (document.totalAmount * (100 - event.percent)) / 100,
+      };
+    default:
+      return document;
+  }
+};
+
+const shoppingCartShortInfoProjection = pongoSingleStreamProjection({
+  collectionName: shoppingCartShortInfoCollectionName,
+  evolve,
+  canHandle: ['ProductItemAdded', 'DiscountApplied'],
+});
+
+let handledEventsInCustomProjection: ReadEvent<ShoppingCartEvent>[] = [];
+
+const customProjection = postgreSQLProjection<ShoppingCartEvent>({
+  name: 'customProjection',
+  canHandle: ['ProductItemAdded', 'DiscountApplied'],
+  handle: (events) => {
+    handledEventsInCustomProjection.push(...events);
+  },
+});

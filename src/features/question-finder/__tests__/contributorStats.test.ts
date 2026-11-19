@@ -14,6 +14,7 @@ import type { WireMessage } from "./discordWire.test-utils";
 import { fakeDiscord } from "./discordWire.test-utils";
 
 const XSTATE: Project = {
+  id: "xstate",
   channels: [
     { id: "x1", name: "xstate-help" },
     { id: "x2", name: "xstate-chat" },
@@ -131,7 +132,7 @@ describe("the contributor statistic of a Project", () => {
     const wire = fakeDiscord({
       broken: ["100"],
       channels: {
-        x1: [said("100", "ana", "How do actors stop?")],
+        x1: [{ ...said("100", "ana", "How do actors stop?"), threadId: "100" }],
         x2: [said("200", "bo")],
       },
     });

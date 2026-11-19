@@ -134,6 +134,7 @@ describe(toRow, () => {
   };
 
   const project: Project = {
+    id: "xstate",
     channels: [{ id: "c1", name: "help" }],
     label: "XState",
     ownerName: "grace",

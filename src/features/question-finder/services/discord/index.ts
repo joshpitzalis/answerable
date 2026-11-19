@@ -14,6 +14,7 @@ import type {
   DiscordRateLimited,
 } from "#/features/question-finder/services/discord/lib/errors";
 
+import type { SourcePage } from "../../domain/values/thread.values";
 import {
   fixtureFetch,
   isPostChannel,
@@ -21,6 +22,10 @@ import {
   listPosts,
   POST_PAGE,
 } from "./handlers";
+import { sourcePage } from "./handlers/sourcePage";
+import type { SourcePageRequest } from "./handlers/sourcePage";
+
+export { DiscordFailed } from "./lib/errors";
 
 /** Snowflakes of different lengths still order by time: longer is newer. */
 const isNewer = (id: Snowflake, cursor: Snowflake) =>
@@ -99,6 +104,8 @@ const make = (fetch: typeof globalThis.fetch, token: string) => {
     );
 
   return {
+    sourcePage: (request: SourcePageRequest) =>
+      sourcePage(request, token, fetch),
     messagesSince: (
       channelId: string,
       cursor: Option.Option<Snowflake>,
@@ -128,6 +135,9 @@ const make = (fetch: typeof globalThis.fetch, token: string) => {
 export class Discord extends Context.Service<
   Discord,
   {
+    readonly sourcePage: (
+      request: SourcePageRequest
+    ) => Effect.Effect<SourcePage, DiscordFailed | DiscordRateLimited>;
     /** Messages newer than `cursor`, oldest first. `None` means "from the beginning". */
     readonly messagesSince: (
       channelId: string,

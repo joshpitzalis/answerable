@@ -1,0 +1,330 @@
+import { dumbo, SQL } from '@event-driven-io/dumbo';
+import { pgDumboDriver, tableExists } from '@event-driven-io/dumbo/pg';
+import {
+  assertDeepEqual,
+  assertEqual,
+  assertFalse,
+  assertRejects,
+  assertTrue,
+  type Event,
+} from '@event-driven-io/emmett';
+import { v4 as uuid } from 'uuid';
+import { afterAll, beforeAll, describe, it } from 'vitest';
+import {
+  sharedPostgreSQLDatabase,
+  type PostgreSQLTestDatabase,
+} from '../../testing/postgreSQLTestDatabase';
+import { schemaExists } from '../../testing/schemaObjects';
+import { pgEventStoreDriver } from '../../pg';
+import { getPostgreSQLEventStore } from '../postgreSQLEventStore';
+import { postgreSQLRawSQLProjection } from './postgreSQLProjection';
+import { expectSQL, PostgreSQLProjectionSpec } from './postgresProjectionSpec';
+
+type ProductItemAdded = Event<
+  'ProductItemAdded',
+  { productItem: { price: number; productId: string; quantity: number } }
+>;
+
+type Counted = Event<'Counted', { count: number }>;
+type CountedV2 = Event<'Counted', { count: number }, undefined, 2>;
+
+void describe('PostgreSQL Projections', () => {
+  let database: PostgreSQLTestDatabase;
+  let connectionString: string;
+
+  beforeAll(async () => {
+    database = await sharedPostgreSQLDatabase();
+    connectionString = database.connectionString;
+  });
+
+  afterAll(async () => {
+    try {
+      await database?.close();
+    } catch (error) {
+      console.log(error);
+    }
+  });
+
+  void it('hands events to the projection with the given schema version, or version 1 when none is given', async () => {
+    const handled: Pick<
+      Counted | CountedV2,
+      'kind' | 'type' | 'data' | 'schemaVersion'
+    >[] = [];
+
+    await PostgreSQLProjectionSpec.for({
+      connectionString,
+      projection: postgreSQLRawSQLProjection<Counted | CountedV2>({
+        name: 'schema_version_projection',
+        canHandle: ['Counted'],
+        evolve: ({ kind, type, data, schemaVersion }) => {
+          handled.push({ kind, type, data, schemaVersion });
+          return SQL`SELECT 1;`;
+        },
+      }),
+    })([])
+      .when([
+        { type: 'Counted', data: { count: 1 } },
+        { type: 'Counted', data: { count: 2 }, schemaVersion: 2 },
+      ])
+      .then(() => {
+        assertDeepEqual(handled, [
+          {
+            kind: 'Event',
+            type: 'Counted',
+            data: { count: 1 },
+            schemaVersion: 1,
+          },
+          {
+            kind: 'Event',
+            type: 'Counted',
+            data: { count: 2 },
+            schemaVersion: 2,
+          },
+        ]);
+        return Promise.resolve(true);
+      });
+  });
+
+  void it('should call init method', async () => {
+    let wasInitCalled = false;
+
+    const given = PostgreSQLProjectionSpec.for({
+      connectionString,
+      projection: postgreSQLRawSQLProjection({
+        name: 'test',
+        evolve: () => SQL`SELECT 1;`,
+        canHandle: ['ProductItemAdded'],
+        init: () => {
+          wasInitCalled = true;
+          return SQL`SELECT 1;`;
+        },
+      }),
+    });
+
+    await given([])
+      .when([
+        {
+          type: 'ProductItemAdded',
+          data: {
+            productItem: {
+              price: 100,
+              productId: 'shoes',
+              quantity: 100,
+            },
+          },
+        },
+      ])
+      .then(async () => {
+        if (!wasInitCalled) {
+          throw new Error('Init was not called');
+        }
+        return Promise.resolve(true);
+      });
+  });
+
+  void it('should call initSQL method', async () => {
+    const projection = 'init_sql_projection';
+
+    const given = PostgreSQLProjectionSpec.for({
+      connectionString,
+      projection: postgreSQLRawSQLProjection({
+        name: projection,
+        evolve: () => SQL`SELECT 1;`,
+        canHandle: ['ProductItemAdded'],
+        init: () =>
+          SQL`CREATE TABLE IF NOT EXISTS ${SQL.identifier(projection)} (id TEXT)`,
+      }),
+    });
+
+    await given([])
+      .when([
+        {
+          type: 'ProductItemAdded',
+          data: {
+            productItem: {
+              price: 100,
+              productId: 'shoes',
+              quantity: 100,
+            },
+          },
+        },
+      ])
+      .then(async ({ pool }) => {
+        const result = await tableExists(pool.execute, projection);
+
+        assertTrue(result);
+      });
+  });
+
+  for (const dryRun of ['transactional', 'diff'] as const) {
+    void it(`creates no raw SQL projection table when the user runs a ${dryRun} dry run`, async () => {
+      const tableName = schemaName('dry_run_projection');
+      const store = getPostgreSQLEventStore({
+        driver: pgEventStoreDriver,
+        connectionString,
+        schema: { autoMigration: 'None' },
+        projections: [
+          {
+            type: 'inline',
+            projection: postgreSQLRawSQLProjection<ProductItemAdded>({
+              name: tableName,
+              canHandle: ['ProductItemAdded'],
+              init: () =>
+                SQL`CREATE TABLE IF NOT EXISTS ${SQL.identifier(tableName)} (id TEXT)`,
+              evolve: () => SQL`SELECT 1;`,
+            }),
+          },
+        ],
+      });
+      const pool = dumbo({ driver: pgDumboDriver, connectionString });
+
+      try {
+        await store.schema.migrate({ dryRun });
+
+        assertFalse(await tableExists(pool.execute, tableName));
+      } finally {
+        await store.close();
+        await pool.close();
+      }
+    });
+  }
+
+  void it('reverts the raw SQL projection table and the event store schema when another projection fails during migration', async () => {
+    const eventSchemaName = schemaName('events');
+    const tableName = schemaName('reverted_projection');
+    const store = getPostgreSQLEventStore({
+      driver: pgEventStoreDriver,
+      connectionString,
+      schema: { autoMigration: 'None', databaseSchemaName: eventSchemaName },
+      projections: [
+        {
+          type: 'inline',
+          projection: postgreSQLRawSQLProjection<ProductItemAdded>({
+            name: tableName,
+            canHandle: ['ProductItemAdded'],
+            init: () =>
+              SQL`CREATE TABLE IF NOT EXISTS ${SQL.identifier(tableName)} (id TEXT)`,
+            evolve: () => SQL`SELECT 1;`,
+          }),
+        },
+        {
+          type: 'inline',
+          projection: postgreSQLRawSQLProjection<ProductItemAdded>({
+            name: schemaName('failing_init'),
+            canHandle: ['ProductItemAdded'],
+            init: () => {
+              throw new Error('projection init failed on purpose');
+            },
+            evolve: () => SQL`SELECT 1;`,
+          }),
+        },
+      ],
+    });
+    const pool = dumbo({ driver: pgDumboDriver, connectionString });
+
+    try {
+      await assertRejects(
+        store.schema.migrate(),
+        (error) =>
+          error instanceof Error &&
+          error.message === 'projection init failed on purpose',
+      );
+
+      assertFalse(await tableExists(pool.execute, tableName));
+      assertFalse(await schemaExists(pool.execute, eventSchemaName));
+    } finally {
+      await store.close();
+      await pool.close();
+    }
+  });
+
+  void it('sums product sales into a table', () => {
+    const productSales = 'product_sales';
+
+    const given = PostgreSQLProjectionSpec.for({
+      connectionString,
+      projection: postgreSQLRawSQLProjection<ProductItemAdded>({
+        name: 'productSales',
+        canHandle: ['ProductItemAdded'],
+        init: () =>
+          SQL`CREATE TABLE IF NOT EXISTS ${SQL.identifier(productSales)} (
+            product_id TEXT PRIMARY KEY,
+            total_amount INT NOT NULL
+          )`,
+        evolve: ({ data: { productItem } }) =>
+          SQL`INSERT INTO ${SQL.identifier(productSales)} (product_id, total_amount)
+              VALUES (${productItem.productId}, ${productItem.price * productItem.quantity})
+              ON CONFLICT (product_id)
+              DO UPDATE SET total_amount = ${SQL.identifier(productSales)}.total_amount + EXCLUDED.total_amount`,
+      }),
+    });
+
+    return given([])
+      .when([
+        {
+          type: 'ProductItemAdded',
+          data: {
+            productItem: { price: 100, productId: 'shoes', quantity: 2 },
+          },
+        },
+      ])
+      .then(
+        expectSQL
+          .query(
+            SQL`SELECT product_id, total_amount FROM ${SQL.identifier(productSales)}`,
+          )
+          .resultRows.toBeTheSame([{ product_id: 'shoes', total_amount: 200 }]),
+      );
+  });
+
+  void it('passes configured schema names to raw SQL projection handlers', () => {
+    const eventSchemaName = schemaName('events');
+    const projectionSchemaName = schemaName('read_models');
+    const migrationSchemaName = schemaName('infrastructure');
+    const migrationTableName = 'emmett_migrations';
+    let evolveProjectionSchemaName: string | undefined;
+    let evolveMigrationTableSchemaName: string | undefined;
+
+    const given = PostgreSQLProjectionSpec.for({
+      connectionString,
+      schema: {
+        autoMigration: 'CreateOrUpdate',
+        databaseSchemaName: eventSchemaName,
+        projectionsDatabaseSchemaName: projectionSchemaName,
+        migrationTable: {
+          schemaName: migrationSchemaName,
+          tableName: migrationTableName,
+        },
+      },
+      projection: postgreSQLRawSQLProjection<ProductItemAdded>({
+        name: schemaName('raw_product_sales'),
+        canHandle: ['ProductItemAdded'],
+        evolve: (_event, context) => {
+          evolveProjectionSchemaName =
+            context.migrationOptions?.projectionsDatabaseSchemaName;
+          evolveMigrationTableSchemaName =
+            context.migrationOptions?.migrationTable?.schemaName;
+          return SQL`SELECT 1;`;
+        },
+      }),
+    });
+
+    return given([])
+      .when([
+        {
+          type: 'ProductItemAdded',
+          data: {
+            productItem: { price: 100, productId: 'shoes', quantity: 2 },
+          },
+        },
+      ])
+      .then(async () => {
+        assertEqual(evolveProjectionSchemaName, projectionSchemaName);
+        assertEqual(evolveMigrationTableSchemaName, migrationSchemaName);
+        await Promise.resolve();
+      });
+  });
+});
+
+const schemaName = (prefix: string): string =>
+  `${prefix}_${uuid().replaceAll('-', '_')}`;

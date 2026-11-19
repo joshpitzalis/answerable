@@ -1,0 +1,210 @@
+import js from '@eslint/js';
+import typescriptEslint from '@typescript-eslint/eslint-plugin';
+import prettierRecommended from 'eslint-plugin-prettier/recommended';
+import globals from 'globals';
+
+const noNodeBuiltins = {
+  group: ['node:*'],
+  message:
+    'Code reachable from the Cloudflare entries cannot import Node built-ins. Specs can.',
+};
+
+export default [
+  {
+    ignores: [
+      'vitest.config.ts',
+      'vitest.cloudflare.config.ts',
+      '**/dist/',
+      '**/lib/',
+      '**/.vitepress/cache/',
+      'node_modules/*',
+      '**/node_modules',
+      'dist/*coverage/*',
+      'dist/*',
+      'lib/*',
+      '**/dist/*',
+      '**/dist',
+      '**/*.d.ts',
+      'src/types/',
+      '!**/.eslintrc.js',
+      'eslint.config.mjs',
+      'e2e/*',
+    ],
+  },
+  js.configs.recommended,
+  ...typescriptEslint.configs['flat/recommended'],
+  ...typescriptEslint.configs['flat/recommended-type-checked'],
+  prettierRecommended,
+  {
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
+
+      parserOptions: {
+        project: './tsconfig.eslint.json',
+      },
+    },
+
+    rules: {
+      'no-unused-vars': 'off',
+
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          varsIgnorePattern: '^_',
+          argsIgnorePattern: '^_',
+        },
+      ],
+
+      '@typescript-eslint/consistent-type-imports': [
+        'error',
+        {
+          prefer: 'type-imports',
+          fixStyle: 'separate-type-imports',
+        },
+      ],
+      '@typescript-eslint/no-import-type-side-effects': 'error',
+
+      '@typescript-eslint/no-misused-promises': ['off'],
+      '@typescript-eslint/prefer-namespace-keyword': 'off',
+
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: ['**.spec.ts'],
+          patterns: ['node:*'],
+        },
+      ],
+    },
+  },
+  {
+    files: [
+      '**/**.spec.ts',
+      'packages/**/src/testing/**',
+      'docs/**',
+      'packages/emmett-postgresql/**',
+      'packages/emmett-mongodb/**',
+      'packages/emmett-esdb/**',
+      'packages/emmett-expressjs/**',
+      'packages/emmett-honojs/**',
+      'packages/emmett-fastify/**',
+      'packages/emmett-sqlite/**',
+      'packages/emmett-testcontainers/**',
+      'packages/emmett-tests/**',
+    ],
+    rules: {
+      'no-restricted-imports': 'off',
+    },
+  },
+  {
+    files: ['packages/emmett-sqlite/src/**'],
+    ignores: [
+      'packages/emmett-sqlite/**/*.spec.ts',
+      'packages/emmett-sqlite/src/storage/sqlite3/**',
+      'packages/emmett-sqlite/src/cli.ts',
+    ],
+    rules: {
+      'no-restricted-imports': ['error', { patterns: [noNodeBuiltins] }],
+    },
+  },
+  {
+    files: ['packages/emmett-postgresql/src/**'],
+    ignores: [
+      'packages/emmett-postgresql/**/*.spec.ts',
+      'packages/emmett-postgresql/src/testing/**',
+      'packages/emmett-postgresql/src/pg.ts',
+      'packages/emmett-postgresql/src/cli.ts',
+      'packages/emmett-postgresql/src/benchmarks/**',
+      'packages/emmett-postgresql/src/node/**',
+    ],
+    rules: {
+      'no-restricted-imports': ['error', { patterns: [noNodeBuiltins] }],
+    },
+  },
+  {
+    files: [
+      'packages/emmett-sqlite/src/storage/durableObject/**/*.int.spec.ts',
+      'packages/emmett-sqlite/src/storage/durableObject/**/*.e2e.spec.ts',
+      'packages/emmett-sqlite/src/storage/durableObject/testing/durableObjectTestWorker.ts',
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: './tsconfig.cloudflare.json',
+      },
+    },
+  },
+  {
+    files: ['packages/emmett-postgresql/**', 'packages/emmett-sqlite/**'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "CallExpression[callee.name='dumbo'] > ObjectExpression" +
+            ":not(:has(> Property[key.name='driver']))" +
+            ':not(:has(> SpreadElement))',
+          message:
+            'dumbo() must receive an explicit `driver`. Relying on the global driver ' +
+            'registry fails when the driver module is not eagerly imported.',
+        },
+      ],
+    },
+  },
+  {
+    files: ['packages/emmett-sqlite/**'],
+    ignores: [
+      'packages/emmett-sqlite/**/*.spec.ts',
+      'packages/emmett-sqlite/src/storage/sqlite3/**',
+      'packages/emmett-sqlite/src/storage/d1/**',
+      'packages/emmett-sqlite/src/storage/durableObject/**',
+    ],
+    rules: {
+      '@typescript-eslint/no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@event-driven-io/dumbo/sqlite3',
+              message:
+                'Take the sqlite3 driver from `src/sqlite3.ts` instead. Importing ' +
+                'the driver module elsewhere ties the package to a single SQLite driver.',
+              allowTypeImports: true,
+            },
+            {
+              name: '@event-driven-io/dumbo/cloudflare',
+              message:
+                'Take the D1 or Durable Object driver from `src/cloudflare.ts` instead. Importing ' +
+                'the driver module elsewhere ties the package to a single SQLite driver.',
+              allowTypeImports: true,
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['packages/emmett-postgresql/**'],
+    ignores: [
+      'packages/emmett-postgresql/**/*.spec.ts',
+      'packages/emmett-postgresql/src/pg.ts',
+      'packages/emmett-postgresql/src/testing/**',
+    ],
+    rules: {
+      '@typescript-eslint/no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@event-driven-io/dumbo/pg',
+              message:
+                'Take the pg driver from `src/pg.ts` instead. Importing the driver ' +
+                'module elsewhere ties the package to a single PostgreSQL driver.',
+              allowTypeImports: true,
+            },
+          ],
+        },
+      ],
+    },
+  },
+];

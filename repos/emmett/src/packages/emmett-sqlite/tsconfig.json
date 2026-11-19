@@ -1,0 +1,28 @@
+{
+  "extends": "../../tsconfig.shared.json",
+  "include": ["./src/**/*"],
+  "exclude": [
+    "./src/storage/durableObject/**/*.int.spec.ts",
+    "./src/storage/durableObject/**/*.e2e.spec.ts",
+    "./src/storage/durableObject/testing/durableObjectTestWorker.ts"
+  ],
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "./lib" /* Redirect output structure to the directory. */,
+    "tsBuildInfoFile": "./lib/tsconfig.tsbuildinfo",
+    "rootDir": "./src",
+    "paths": {
+      "@event-driven-io/almanac": ["../almanac/src"],
+      "@event-driven-io/emmett": ["../emmett/src"],
+      "@event-driven-io/emmett-testcontainers": ["../emmett-testcontainers/src"]
+    }
+  },
+  "references": [
+    {
+      "path": "../emmett/"
+    },
+    {
+      "path": "../emmett-testcontainers/"
+    }
+  ]
+}

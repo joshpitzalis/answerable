@@ -1,0 +1,619 @@
+import assert from 'node:assert';
+import { noopLogger } from '@event-driven-io/almanac';
+import { describe, it } from 'vitest';
+import {
+  guardConcurrentAccess,
+  guardBoundedAccess,
+  guardExclusiveAccess,
+  guardInitializedOnce,
+} from './executionGuards';
+
+describe('Task Processing Guards', () => {
+  describe('guardConcurrentAccess', () => {
+    it('does not serialize concurrent operations', async () => {
+      const guard = guardConcurrentAccess();
+      let activeOperations = 0;
+      let peakOperations = 0;
+
+      await Promise.all(
+        Array.from({ length: 5 }, async () =>
+          guard.execute(async () => {
+            activeOperations++;
+            peakOperations = Math.max(peakOperations, activeOperations);
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            activeOperations--;
+          }),
+        ),
+      );
+
+      assert.strictEqual(peakOperations, 5);
+    });
+
+    it('aborts active operation context when closeDeadline elapses', async () => {
+      const guard = guardConcurrentAccess();
+      const operationStarted = Promise.withResolvers<void>();
+
+      const operationPromise = guard.execute(async ({ abort: { signal } }) => {
+        operationStarted.resolve();
+        await new Promise<void>((resolve) => {
+          if (signal.aborted) {
+            resolve();
+            return;
+          }
+          signal.addEventListener('abort', () => resolve(), { once: true });
+        });
+        return signal.reason instanceof Error ? signal.reason.message : '';
+      });
+
+      await operationStarted.promise;
+      await guard.stop({ closeDeadline: 10 });
+
+      assert.strictEqual(
+        await operationPromise,
+        'TaskProcessor has been stopped',
+      );
+    });
+  });
+
+  describe('guardExclusiveAccess', () => {
+    it('ensures operations run one at a time', async () => {
+      const guard = guardExclusiveAccess();
+      const executionOrder: number[] = [];
+      let activeOperations = 0;
+
+      const operation = async (id: number) => {
+        activeOperations++;
+        assert.strictEqual(
+          activeOperations,
+          1,
+          'Only one operation should be active',
+        );
+        executionOrder.push(id);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        activeOperations--;
+      };
+
+      await Promise.all([
+        guard.execute(() => operation(1)),
+        guard.execute(() => operation(2)),
+        guard.execute(() => operation(3)),
+      ]);
+
+      assert.strictEqual(executionOrder.length, 3);
+      assert.strictEqual(activeOperations, 0);
+    });
+
+    it('propagates errors correctly', async () => {
+      const guard = guardExclusiveAccess();
+
+      await assert.rejects(
+        () => guard.execute(() => Promise.reject(new Error('test error'))),
+        /test error/,
+      );
+    });
+
+    it('stops and rejects new operations after stop with force', async () => {
+      const guard = guardExclusiveAccess();
+
+      await guard.stop({ force: true });
+
+      await assert.rejects(
+        () => guard.execute(() => Promise.resolve(42)),
+        /TaskProcessor has been stopped/,
+      );
+    });
+
+    it('waits for active operations when stopping without force', async () => {
+      const guard = guardExclusiveAccess();
+      let operationCompleted = false;
+
+      const operationPromise = guard.execute(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        operationCompleted = true;
+        return 42;
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      await guard.stop();
+
+      assert.strictEqual(
+        operationCompleted,
+        true,
+        'Should wait for operation to complete',
+      );
+      const result = await operationPromise;
+      assert.strictEqual(result, 42);
+    });
+
+    it('lets callers wait until exclusive work is finished', async () => {
+      const guard = guardExclusiveAccess();
+      const completedOperations: number[] = [];
+
+      const first = guard.execute(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        completedOperations.push(1);
+      });
+      const second = guard.execute(() => {
+        completedOperations.push(2);
+        return Promise.resolve();
+      });
+
+      await guard.waitForEndOfProcessing();
+
+      await Promise.all([first, second]);
+      assert.deepStrictEqual(completedOperations, [1, 2]);
+    });
+
+    it('aborts active operation context on force stop', async () => {
+      const guard = guardExclusiveAccess();
+
+      let markOperationStarted: () => void = () => {};
+      const operationStarted = new Promise<void>((resolve) => {
+        markOperationStarted = resolve;
+      });
+      const operationPromise = guard.execute(({ abort: { signal } }) => {
+        return new Promise((_resolve, reject) => {
+          markOperationStarted();
+          signal.addEventListener('abort', () => {
+            reject(
+              signal.reason instanceof Error
+                ? signal.reason
+                : new Error(String(signal.reason)),
+            );
+          });
+        });
+      });
+
+      await operationStarted;
+      await guard.stop({ force: true });
+
+      await assert.rejects(operationPromise, /TaskProcessor has been stopped/);
+    });
+
+    it('rejects operation when its signal is already aborted', async () => {
+      const guard = guardExclusiveAccess();
+      const abortController = new AbortController();
+      abortController.abort(new Error('exclusive aborted'));
+
+      await assert.rejects(
+        () =>
+          guard.execute(() => Promise.resolve(1), {
+            abort: { signal: abortController.signal },
+          }),
+        /exclusive aborted/,
+      );
+    });
+  });
+
+  describe('guardBoundedAccess', () => {
+    it('limits concurrent access to resources', async () => {
+      let resourceId = 0;
+      const guard = guardBoundedAccess(() => ({ id: ++resourceId }), {
+        maxResources: 2,
+        reuseResources: true,
+      });
+
+      let maxConcurrent = 0;
+      let currentConcurrent = 0;
+
+      const operation = async (resource: { id: number }) => {
+        currentConcurrent++;
+        maxConcurrent = Math.max(maxConcurrent, currentConcurrent);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        currentConcurrent--;
+        return resource.id;
+      };
+
+      const results = await Promise.all([
+        guard.execute(operation),
+        guard.execute(operation),
+        guard.execute(operation),
+        guard.execute(operation),
+      ]);
+
+      assert.strictEqual(maxConcurrent, 2, 'Should not exceed max resources');
+      assert.strictEqual(results.length, 4);
+    });
+
+    it('reuses resources when enabled', async () => {
+      const createdResources: number[] = [];
+      const guard = guardBoundedAccess(
+        () => {
+          const id = createdResources.length + 1;
+          createdResources.push(id);
+          return { id };
+        },
+        {
+          maxResources: 2,
+          reuseResources: true,
+        },
+      );
+
+      await Promise.all([
+        guard.execute((r) => Promise.resolve(r.id)),
+        guard.execute((r) => Promise.resolve(r.id)),
+        guard.execute((r) => Promise.resolve(r.id)),
+        guard.execute((r) => Promise.resolve(r.id)),
+      ]);
+
+      assert.strictEqual(
+        createdResources.length,
+        2,
+        'Should only create maxResources when reusing',
+      );
+    });
+
+    it('releases resources on error', async () => {
+      const guard = guardBoundedAccess(() => ({ id: 1 }), {
+        maxResources: 1,
+        reuseResources: true,
+      });
+
+      await assert.rejects(
+        () => guard.execute(() => Promise.reject(new Error('test error'))),
+        /test error/,
+      );
+
+      const result = await guard.execute((r) => Promise.resolve(r.id));
+      assert.strictEqual(
+        result,
+        1,
+        'Should be able to use resource after error',
+      );
+    });
+
+    it('closes resources after active operations complete on stop', async () => {
+      const closedResources: number[] = [];
+      const guard = guardBoundedAccess(() => ({ id: 1 }), {
+        maxResources: 1,
+        reuseResources: true,
+        closeResource: (resource) => {
+          closedResources.push(resource.id);
+        },
+      });
+
+      const operationPromise = guard.execute(async (resource) => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        assert.deepStrictEqual(closedResources, []);
+        return resource.id;
+      });
+
+      await guard.stop();
+
+      assert.strictEqual(await operationPromise, 1);
+      assert.deepStrictEqual(closedResources, [1]);
+    });
+
+    it('stops and clears queue on stop with force', async () => {
+      const guard = guardBoundedAccess(() => ({ id: 1 }), {
+        maxResources: 1,
+        reuseResources: false,
+      });
+
+      await guard.stop({ force: true });
+
+      await assert.rejects(
+        () => guard.execute(() => Promise.resolve(1)),
+        /TaskProcessor has been stopped/,
+      );
+    });
+
+    it('waits for active operations when stopping without force', async () => {
+      const guard = guardBoundedAccess(() => ({ id: 1 }), {
+        maxResources: 1,
+        reuseResources: true,
+      });
+
+      let operationCompleted = false;
+
+      const operationPromise = guard.execute(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        operationCompleted = true;
+        return 1;
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      await guard.stop();
+
+      assert.strictEqual(
+        operationCompleted,
+        true,
+        'Should wait for operation to complete',
+      );
+      const result = await operationPromise;
+      assert.strictEqual(result, 1);
+    });
+
+    it('lets callers wait until bounded work is finished', async () => {
+      const guard = guardBoundedAccess(() => ({ id: 1 }), {
+        maxResources: 1,
+      });
+      const completedOperations: number[] = [];
+
+      const first = guard.execute(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        completedOperations.push(1);
+      });
+      const second = guard.execute(() => {
+        completedOperations.push(2);
+        return Promise.resolve();
+      });
+
+      await guard.waitForEndOfProcessing();
+
+      await Promise.all([first, second]);
+      assert.deepStrictEqual(completedOperations, [1, 2]);
+    });
+
+    it('aborts active operation context on force stop', async () => {
+      const guard = guardBoundedAccess(() => ({ id: 1 }), {
+        maxResources: 1,
+        reuseResources: true,
+      });
+
+      let markOperationStarted: () => void = () => {};
+      const operationStarted = new Promise<void>((resolve) => {
+        markOperationStarted = resolve;
+      });
+      const operationPromise = guard.execute(
+        (_resource, { abort: { signal } }) => {
+          return new Promise((_resolve, reject) => {
+            markOperationStarted();
+            signal.addEventListener('abort', () => {
+              reject(
+                signal.reason instanceof Error
+                  ? signal.reason
+                  : new Error(String(signal.reason)),
+              );
+            });
+          });
+        },
+      );
+
+      await operationStarted;
+      await guard.stop({ force: true });
+
+      await assert.rejects(operationPromise, /TaskProcessor has been stopped/);
+    });
+
+    it('rejects operation when its signal is already aborted', async () => {
+      const guard = guardBoundedAccess(() => ({ id: 1 }), {
+        maxResources: 1,
+        reuseResources: true,
+      });
+      const abortController = new AbortController();
+      abortController.abort(new Error('bounded aborted'));
+
+      await assert.rejects(
+        () =>
+          guard.execute(() => Promise.resolve(1), {
+            abort: { signal: abortController.signal },
+          }),
+        /bounded aborted/,
+      );
+    });
+
+    it('frees the slot when caller aborts acquire while resource is still being created', async () => {
+      const slowResources = [
+        Promise.withResolvers<{ id: number }>(),
+        Promise.withResolvers<{ id: number }>(),
+      ];
+      const resourceRequested = [
+        Promise.withResolvers<void>(),
+        Promise.withResolvers<void>(),
+      ];
+      let requestedResources = 0;
+      const guard = guardBoundedAccess(
+        () => {
+          const index = requestedResources++;
+          if (index >= slowResources.length) return { id: index + 1 };
+
+          resourceRequested[index]!.resolve();
+          return slowResources[index]!.promise;
+        },
+        { maxResources: 2 },
+      );
+
+      for (const index of [0, 1]) {
+        const abortController = new AbortController();
+        const acquisition = guard.acquire({
+          abort: { signal: abortController.signal },
+        });
+        await resourceRequested[index]!.promise;
+
+        abortController.abort(new Error('caller gave up'));
+        await assert.rejects(acquisition, /caller gave up/);
+
+        slowResources[index]!.resolve({ id: index + 1 });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+
+      const thirdAcquisition = guard.acquire();
+      thirdAcquisition.catch(() => {});
+
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const outcome = await Promise.race([
+        thirdAcquisition.then(() => 'acquired'),
+        new Promise<string>((resolve) => {
+          timer = setTimeout(() => resolve('still waiting'), 50);
+        }),
+      ]);
+      clearTimeout(timer);
+
+      await guard.stop({ force: true });
+
+      assert.strictEqual(outcome, 'acquired');
+    });
+  });
+
+  describe('guardInitializedOnce', () => {
+    it('ensures initialization happens only once', async () => {
+      let initCount = 0;
+      const guard = guardInitializedOnce(async () => {
+        initCount++;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return `init-${initCount}`;
+      });
+
+      const results = await Promise.all([
+        guard.ensureInitialized(),
+        guard.ensureInitialized(),
+        guard.ensureInitialized(),
+      ]);
+
+      assert.strictEqual(initCount, 1, 'Should initialize only once');
+      assert.deepStrictEqual(
+        results,
+        ['init-1', 'init-1', 'init-1'],
+        'All calls should return the same result',
+      );
+    });
+
+    it('retries on failure', async () => {
+      let attempts = 0;
+      const guard = guardInitializedOnce(
+        () => {
+          attempts++;
+          if (attempts < 3) {
+            throw new Error('Not ready yet');
+          }
+          return Promise.resolve(`success-${attempts}`);
+        },
+        { maxRetries: 5 },
+      );
+
+      const result = await guard.ensureInitialized();
+      assert.strictEqual(attempts, 3, 'Should retry until success');
+      assert.strictEqual(
+        result,
+        'success-3',
+        'Should return result from successful attempt',
+      );
+    });
+
+    it('throws after max retries exceeded', async () => {
+      let attempts = 0;
+      const guard = guardInitializedOnce(
+        async () => {
+          attempts++;
+          return Promise.reject(new Error('Always fails'));
+        },
+        { maxRetries: 2 },
+      );
+
+      await assert.rejects(() => guard.ensureInitialized(), /Always fails/);
+      assert.strictEqual(attempts, 3, 'Should attempt maxRetries + 1 times');
+    });
+
+    it('allows reset to reinitialize', async () => {
+      let initCount = 0;
+      const guard = guardInitializedOnce(() => {
+        initCount++;
+        return Promise.resolve(`value-${initCount}`);
+      });
+
+      const first = await guard.ensureInitialized();
+      assert.strictEqual(initCount, 1);
+      assert.strictEqual(first, 'value-1');
+
+      guard.reset();
+      const second = await guard.ensureInitialized();
+      assert.strictEqual(initCount, 2, 'Should reinitialize after reset');
+      assert.strictEqual(
+        second,
+        'value-2',
+        'Should return new value after reset',
+      );
+    });
+
+    it('stops and prevents new initialization after stop', async () => {
+      const guard = guardInitializedOnce(() => {
+        return Promise.resolve('initialized');
+      });
+
+      await guard.stop({ force: true });
+
+      await assert.rejects(
+        () => guard.ensureInitialized(),
+        /TaskProcessor has been stopped/,
+      );
+    });
+
+    it('rejects initialization when its signal is already aborted', async () => {
+      const guard = guardInitializedOnce(() => Promise.resolve('initialized'));
+      const abortController = new AbortController();
+      abortController.abort(new Error('initialization aborted'));
+
+      await assert.rejects(
+        () =>
+          guard.ensureInitialized({
+            abort: { signal: abortController.signal },
+          }),
+        /initialization aborted/,
+      );
+    });
+
+    it('lets one-time initialization observe caller abort while setup is running', async () => {
+      const abortController = new AbortController();
+      let observedSignal: AbortSignal | undefined;
+      const guard = guardInitializedOnce(async ({ abort }) => {
+        observedSignal = abort.signal;
+        await new Promise<void>((resolve) => {
+          abort.signal.addEventListener('abort', () => resolve(), {
+            once: true,
+          });
+        });
+        return 'initialized';
+      });
+
+      const initialization = guard.ensureInitialized({
+        abort: { signal: abortController.signal },
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      abortController.abort(new Error('stop initialization'));
+
+      await assert.rejects(initialization, /stop initialization/);
+      assert.strictEqual(observedSignal?.aborted, true);
+    });
+  });
+
+  describe('observability option', () => {
+    it('every guard runs its operations when given an observability option', async () => {
+      const observability = { logger: noopLogger };
+
+      const exclusive = guardExclusiveAccess({ observability });
+      const concurrent = guardConcurrentAccess({ observability });
+      const bounded = guardBoundedAccess(() => 'resource', {
+        maxResources: 1,
+        observability,
+      });
+      const initialized = guardInitializedOnce(() => Promise.resolve(42), {
+        observability,
+      });
+
+      assert.strictEqual(
+        await exclusive.execute(() => Promise.resolve('exclusive')),
+        'exclusive',
+      );
+      assert.strictEqual(
+        await concurrent.execute(() => Promise.resolve('concurrent')),
+        'concurrent',
+      );
+      assert.strictEqual(
+        await bounded.execute((resource) => Promise.resolve(resource)),
+        'resource',
+      );
+      assert.strictEqual(await initialized.ensureInitialized(), 42);
+
+      await Promise.all([
+        exclusive.stop(),
+        concurrent.stop(),
+        bounded.stop(),
+        initialized.stop(),
+      ]);
+    });
+  });
+});

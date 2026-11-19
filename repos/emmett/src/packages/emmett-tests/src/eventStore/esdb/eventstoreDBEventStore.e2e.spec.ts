@@ -1,0 +1,218 @@
+//import { streamTransformations, type Event } from '@event-driven-io/emmett';
+import {
+  MessagingAttributes,
+  ObservabilitySpec,
+} from '@event-driven-io/almanac';
+import {
+  EmmettAttributes,
+  MessagingSystemName,
+  type Event,
+} from '@event-driven-io/emmett';
+import { getEventStoreDBEventStore } from '@event-driven-io/emmett-esdb';
+import type { StartedEventStoreDBContainer } from '@event-driven-io/emmett-testcontainers/esdb';
+import {
+  getSharedEventStoreDBTestContainer,
+  releaseSharedEventStoreDBTestContainer,
+} from '@event-driven-io/emmett-testcontainers/esdb';
+import { v4 as uuid } from 'uuid';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  testAggregateStream,
+  testAppendToStream,
+  testCommandHandling,
+  testConsumerSchemaVersion,
+  testSchemaVersion,
+  testStreamExists,
+  type EventStoreFactory,
+} from '../features';
+
+describe('EventStoreDBEventStore', () => {
+  const M = MessagingAttributes;
+  const given = ObservabilitySpec.for();
+  let esdbContainer: StartedEventStoreDBContainer;
+
+  beforeAll(async () => {
+    await getSharedEventStoreDBTestContainer();
+  });
+
+  afterAll(() => releaseSharedEventStoreDBTestContainer());
+
+  const eventStoreFactory: EventStoreFactory = async () => {
+    esdbContainer = await getSharedEventStoreDBTestContainer();
+    return getEventStoreDBEventStore(esdbContainer.getClient());
+  };
+
+  const teardownHook = async () => {
+    await releaseSharedEventStoreDBTestContainer();
+  };
+
+  testAggregateStream(eventStoreFactory, {
+    teardownHook,
+    getInitialIndex: () => 0n,
+  });
+
+  testAppendToStream(eventStoreFactory, { teardownHook });
+
+  testCommandHandling(eventStoreFactory, {
+    teardownHook,
+    getInitialIndex: () => 0n,
+  });
+
+  testStreamExists(eventStoreFactory, { teardownHook });
+
+  const storeMetadata = {
+    correlationId: expect.any(String) as unknown,
+    causationId: expect.any(String) as unknown,
+    traceId: expect.any(String) as unknown,
+    spanId: expect.any(String) as unknown,
+    eventId: expect.any(String) as unknown,
+    checkpoint: expect.any(String) as unknown,
+    globalPosition: expect.any(String) as unknown,
+  };
+
+  testSchemaVersion(eventStoreFactory, {
+    teardownHook,
+    getInitialIndex: () => 0n,
+    storeMetadata,
+  });
+
+  testConsumerSchemaVersion(eventStoreFactory, {
+    teardownHook,
+    getInitialIndex: () => 0n,
+    storeMetadata,
+  });
+
+  it('records observability spans while appending with ESDB storage', async () => {
+    const container = await getSharedEventStoreDBTestContainer();
+    const streamName = `observed-${uuid()}`;
+
+    try {
+      await given((observability) =>
+        getEventStoreDBEventStore(container.getClient(), {
+          observability,
+        }),
+      )
+        .when((eventStore) =>
+          eventStore.appendToStream(streamName, [
+            { type: 'Observed', data: { observed: true } },
+          ]),
+        )
+        .then(({ spans }) => {
+          spans.hasSingleSpanNamed('eventStore.appendToStream').hasAttributes({
+            [EmmettAttributes.eventStore.operation]: 'appendToStream',
+            [EmmettAttributes.stream.name]: streamName,
+            [EmmettAttributes.eventStore.append.batchSize]: 1,
+            [EmmettAttributes.eventStore.append.status]: 'success',
+            [EmmettAttributes.stream.versionAfter]: 0,
+            [M.operation.type]: 'send',
+            [M.batch.messageCount]: 1,
+            [M.destination.name]: streamName,
+            [M.system]: MessagingSystemName,
+          });
+        });
+    } finally {
+      await releaseSharedEventStoreDBTestContainer();
+    }
+  });
+
+  it('records observability spans while reading with ESDB storage', async () => {
+    const container = await getSharedEventStoreDBTestContainer();
+    const streamName = `observed-${uuid()}`;
+
+    try {
+      await given(async (observability) => {
+        const eventStore = getEventStoreDBEventStore(container.getClient(), {
+          observability,
+        });
+        await eventStore.appendToStream(streamName, [
+          { type: 'Observed', data: { observed: true } },
+        ]);
+        return eventStore;
+      })
+        .when((eventStore) => eventStore.readStream(streamName))
+        .then(({ spans }) => {
+          spans.hasSingleSpanNamed('eventStore.readStream').hasAttributes({
+            [EmmettAttributes.eventStore.operation]: 'readStream',
+            [EmmettAttributes.stream.name]: streamName,
+            [EmmettAttributes.eventStore.read.status]: 'success',
+            [EmmettAttributes.eventStore.read.eventCount]: 1,
+            [EmmettAttributes.eventStore.read.eventTypes]: ['Observed'],
+            [M.operation.type]: 'receive',
+            [M.destination.name]: streamName,
+            [M.system]: MessagingSystemName,
+          });
+        });
+    } finally {
+      await releaseSharedEventStoreDBTestContainer();
+    }
+  });
+
+  it('records observability spans while aggregating with ESDB storage', async () => {
+    const container = await getSharedEventStoreDBTestContainer();
+    const streamName = `observed-${uuid()}`;
+
+    try {
+      await given(async (observability) => {
+        const eventStore = getEventStoreDBEventStore(container.getClient(), {
+          observability,
+        });
+        await eventStore.appendToStream(streamName, [
+          { type: 'Observed', data: { observed: true } },
+        ]);
+        return eventStore;
+      })
+        .when((eventStore) =>
+          eventStore.aggregateStream<{ observed: number }, Event>(streamName, {
+            initialState: () => ({ observed: 0 }),
+            evolve: (state: { observed: number }) => ({
+              observed: state.observed + 1,
+            }),
+          }),
+        )
+        .then(({ spans }) => {
+          spans.hasSingleSpanNamed('eventStore.aggregateStream').hasAttributes({
+            [EmmettAttributes.eventStore.operation]: 'aggregateStream',
+            [EmmettAttributes.stream.name]: streamName,
+            [EmmettAttributes.eventStore.aggregate.status]: 'success',
+            [EmmettAttributes.stream.versionAfter]: 0,
+            [M.operation.type]: 'process',
+            [M.destination.name]: streamName,
+            [M.system]: MessagingSystemName,
+          });
+
+          spans.hasSingleSpanNamed('eventStore.readStream').hasAttributes({
+            [EmmettAttributes.eventStore.operation]: 'readStream',
+            [EmmettAttributes.stream.name]: streamName,
+            [EmmettAttributes.eventStore.read.status]: 'success',
+            [EmmettAttributes.eventStore.read.eventCount]: 1,
+            [EmmettAttributes.eventStore.read.eventTypes]: ['Observed'],
+            [M.operation.type]: 'receive',
+            [M.destination.name]: streamName,
+            [M.system]: MessagingSystemName,
+          });
+        });
+    } finally {
+      await releaseSharedEventStoreDBTestContainer();
+    }
+  });
+
+  // void it.skip('Successful subscription and processing of events', async () => {
+  //   const eventStore = await eventStoreFactory();
+  //   const streamName = 'test-stream';
+
+  //   const events: MockEvent[] = [
+  //     { type: 'Mocked', data: { mocked: true } },
+  //     { type: 'Mocked', data: { mocked: true } },
+  //   ];
+
+  //   await eventStore.appendToStream(streamName, events);
+
+  //   const readableStream = eventStore
+  //     .streamEvents()
+  //     .pipeThrough(stopOn(isGlobalStreamCaughtUp));
+
+  //   const receivedEvents = await collect(readableStream);
+
+  //   assertEqual(receivedEvents.length, events.length);
+  // });
+});

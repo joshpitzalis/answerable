@@ -1,0 +1,118 @@
+import type { DefaultRecord } from './';
+import type {
+  AnyRecordedMessageMetadata,
+  CombinedMessageMetadata,
+  CommonRecordedMessageMetadata,
+  RecordedMessage,
+  RecordedMessageMetadata,
+  RecordedMessageMetadataWithGlobalPosition,
+  RecordedMessageMetadataWithoutGlobalPosition,
+} from './message';
+import {
+  splitMetadataAndSchemaVersion,
+  type SchemaVersionProperty,
+  type WithSchemaVersionArgument,
+} from './messageSchemaVersion';
+
+export type StreamPosition = bigint;
+export type GlobalPosition = string;
+
+export type Event<
+  EventType extends string = string,
+  EventData extends DefaultRecord = DefaultRecord,
+  EventMetaData extends DefaultRecord | undefined = undefined,
+  SchemaVersion extends number = string extends EventType ? number : 1,
+> = Readonly<
+  EventMetaData extends undefined
+    ? {
+        type: EventType;
+        data: EventData;
+      }
+    : {
+        type: EventType;
+        data: EventData;
+        metadata: EventMetaData;
+      }
+> & { readonly kind?: 'Event' } & SchemaVersionProperty<SchemaVersion>;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyEvent = Event<any, any, any, any>;
+
+export type EventTypeOf<T extends Event> = T['type'];
+export type EventDataOf<T extends Event> = T['data'];
+export type EventMetaDataOf<T extends Event> = T extends { metadata: infer M }
+  ? M
+  : undefined;
+
+export type CreateEventType<
+  EventType extends string,
+  EventData extends DefaultRecord,
+  EventMetaData extends DefaultRecord | undefined = undefined,
+  SchemaVersion extends number = string extends EventType ? number : 1,
+> = Readonly<
+  EventMetaData extends undefined
+    ? {
+        type: EventType;
+        data: EventData;
+      }
+    : {
+        type: EventType;
+        data: EventData;
+        metadata: EventMetaData;
+      }
+> & { readonly kind?: 'Event' } & SchemaVersionProperty<SchemaVersion>;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const event = <EventType extends Event<string, any, any, any>>(
+  ...args: EventMetaDataOf<EventType> extends undefined
+    ? WithSchemaVersionArgument<
+        EventType,
+        [type: EventTypeOf<EventType>, data: EventDataOf<EventType>]
+      >
+    : WithSchemaVersionArgument<
+        EventType,
+        [
+          type: EventTypeOf<EventType>,
+          data: EventDataOf<EventType>,
+          metadata: EventMetaDataOf<EventType>,
+        ]
+      >
+): EventType => {
+  const [type, data, ...optionalArguments] = args;
+
+  return {
+    type,
+    data,
+    kind: 'Event',
+    ...splitMetadataAndSchemaVersion(optionalArguments),
+  } as EventType;
+};
+
+export type CombinedReadEventMetadata<
+  EventType extends Event = Event,
+  EventMetaDataType extends AnyRecordedMessageMetadata =
+    AnyRecordedMessageMetadata,
+> = CombinedMessageMetadata<EventType, EventMetaDataType>;
+
+export type ReadEvent<
+  EventType extends Event = Event,
+  EventMetaDataType extends AnyRecordedMessageMetadata =
+    AnyRecordedMessageMetadata,
+> = RecordedMessage<EventType, EventMetaDataType>;
+
+export type AnyReadEvent<
+  EventMetaDataType extends AnyReadEventMetadata = AnyReadEventMetadata,
+> = ReadEvent<AnyEvent, EventMetaDataType>;
+
+export type CommonReadEventMetadata = CommonRecordedMessageMetadata;
+
+export type ReadEventMetadata<HasGlobalPosition = undefined> =
+  RecordedMessageMetadata<HasGlobalPosition>;
+
+export type AnyReadEventMetadata = AnyRecordedMessageMetadata;
+
+export type ReadEventMetadataWithGlobalPosition =
+  RecordedMessageMetadataWithGlobalPosition;
+
+export type ReadEventMetadataWithoutGlobalPosition =
+  RecordedMessageMetadataWithoutGlobalPosition;

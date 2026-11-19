@@ -1,0 +1,281 @@
+import type { EmmettError } from '@event-driven-io/emmett';
+import {
+  assertEqual,
+  assertFails,
+  assertFalse,
+  assertThrowsAsync,
+  assertTrue,
+  type MessageProcessor,
+} from '@event-driven-io/emmett';
+import { v4 as uuid } from 'uuid';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  it,
+} from 'vitest';
+import {
+  sharedMongoDBDatabase,
+  type SharedMongoDBDatabase,
+} from '../../testing/sharedMongoDBDatabase';
+import { isDatabaseUnavailableError } from './messageSource';
+import {
+  mongoDBEventStoreConsumer,
+  type MongoDBEventStoreConsumer,
+} from './mongoDBEventStoreConsumer';
+
+const withDeadline = { timeout: 30000 };
+
+void describe('mongoDB event store consumer', () => {
+  let database: SharedMongoDBDatabase;
+  let connectionString: string;
+  const dummyProcessor: MessageProcessor = {
+    type: 'reactor',
+    id: uuid(),
+    instanceId: uuid(),
+    init: () => Promise.resolve(),
+    start: () => Promise.resolve('BEGINNING'),
+    close: () => Promise.resolve(),
+    handle: () => Promise.resolve(),
+    whenProcessed: () => Promise.resolve(),
+    isActive: false,
+  };
+
+  beforeAll(() => {
+    database = sharedMongoDBDatabase();
+    connectionString = database.connectionString;
+  });
+
+  afterAll(async () => {
+    try {
+      await database.close();
+    } catch (error) {
+      console.log(error);
+    }
+  });
+
+  void it(
+    'creates not-started consumer for the specified connection string',
+    withDeadline,
+    () => {
+      const consumer = mongoDBEventStoreConsumer({
+        connectionString,
+        clientOptions: { directConnection: true },
+        processors: [dummyProcessor],
+      });
+
+      assertFalse(consumer.isRunning);
+    },
+  );
+
+  void it(
+    'creates not-started consumer if connection string targets not existing mongoDB database',
+    withDeadline,
+    () => {
+      const connectionStringToNotExistingDB = 'mongodb://not-existing:32792';
+      const consumer = mongoDBEventStoreConsumer({
+        connectionString: connectionStringToNotExistingDB,
+        clientOptions: { directConnection: true },
+        processors: [dummyProcessor],
+      });
+
+      assertFalse(consumer.isRunning);
+    },
+  );
+
+  void it('generates a uuid v7 consumer id', withDeadline, () => {
+    const consumer = mongoDBEventStoreConsumer({
+      connectionString,
+      clientOptions: { directConnection: true },
+      processors: [dummyProcessor],
+    });
+
+    assertEqual('7', consumer.consumerId[14]);
+  });
+
+  void it(
+    'closes the processor that failed to initialise',
+    withDeadline,
+    async () => {
+      let closes = 0;
+      const failure = new Error('Init failed');
+
+      const failingProcessor: MessageProcessor = {
+        ...dummyProcessor,
+        id: uuid(),
+        init: () => Promise.reject(failure),
+        close: () => {
+          closes++;
+          return Promise.resolve();
+        },
+      };
+
+      const consumer = mongoDBEventStoreConsumer({
+        connectionString,
+        clientOptions: { directConnection: true },
+        processors: [failingProcessor],
+      });
+
+      try {
+        await assertThrowsAsync(
+          () => consumer.start(),
+          (error) => error === failure,
+        );
+
+        assertEqual(1, closes);
+      } finally {
+        await consumer.close();
+      }
+    },
+  );
+
+  void describe('created consumer', () => {
+    let consumer: MongoDBEventStoreConsumer;
+
+    beforeEach(() => {
+      consumer = mongoDBEventStoreConsumer({
+        connectionString,
+        clientOptions: { directConnection: true },
+        processors: [dummyProcessor],
+      });
+    });
+    afterEach(() => {
+      return consumer.close();
+    });
+
+    void it('subscribes to existing event store', withDeadline, () => {
+      consumer.start().catch(() => assertFails());
+
+      assertTrue(consumer.isRunning);
+    });
+
+    void it(
+      'fails to start if connection string targets not existing mongoDB database',
+      { timeout: 60000 },
+      async () => {
+        const connectionStringToNotExistingDB = 'mongodb://not-existing:2113';
+        const consumerToNotExistingServer = mongoDBEventStoreConsumer({
+          connectionString: connectionStringToNotExistingDB,
+          clientOptions: {
+            directConnection: true,
+            serverSelectionTimeoutMS: 1000,
+          },
+          processors: [dummyProcessor],
+        });
+        await assertThrowsAsync(
+          () => consumerToNotExistingServer.start(),
+          isDatabaseUnavailableError,
+        );
+      },
+    );
+
+    void it(
+      'fails to start if there are no processors',
+      withDeadline,
+      async () => {
+        const consumerToNotExistingServer = mongoDBEventStoreConsumer({
+          connectionString,
+          clientOptions: { directConnection: true },
+          processors: [],
+        });
+        await assertThrowsAsync<EmmettError>(
+          () => consumerToNotExistingServer.start(),
+          (error) => {
+            return (
+              error.message ===
+              'Cannot start consumer without at least a single processor'
+            );
+          },
+        );
+      },
+    );
+
+    void it(
+      'started resolves after successful start',
+      withDeadline,
+      async () => {
+        const startedConsumer = mongoDBEventStoreConsumer({
+          connectionString,
+          clientOptions: { directConnection: true },
+          processors: [dummyProcessor],
+        });
+        try {
+          void startedConsumer.start();
+          await startedConsumer.whenStarted();
+          assertTrue(startedConsumer.isRunning);
+        } finally {
+          await startedConsumer.close();
+        }
+      },
+    );
+
+    void it(
+      'started rejects if there are no processors',
+      withDeadline,
+      async () => {
+        const consumerWithoutProcessors = mongoDBEventStoreConsumer({
+          connectionString,
+          clientOptions: { directConnection: true },
+          processors: [],
+        });
+        try {
+          try {
+            consumerWithoutProcessors.start().catch(() => {});
+          } catch {
+            // start() may throw synchronously on validation failure
+          }
+          await assertThrowsAsync<EmmettError>(
+            () => consumerWithoutProcessors.whenStarted(),
+            (error) =>
+              error.message ===
+              'Cannot start consumer without at least a single processor',
+          );
+        } finally {
+          await consumerWithoutProcessors.close();
+        }
+      },
+    );
+
+    void it(
+      `stopping not started consumer doesn't fail`,
+      withDeadline,
+      async () => {
+        await consumer.stop();
+
+        assertFalse(consumer.isRunning);
+      },
+    );
+
+    void it(
+      `stopping not started consumer is idempotent`,
+      withDeadline,
+      async () => {
+        await consumer.stop();
+        await consumer.stop();
+
+        assertFalse(consumer.isRunning);
+      },
+    );
+  });
+
+  void describe('started consumer', withDeadline, () => {
+    let consumer: MongoDBEventStoreConsumer;
+
+    beforeEach(() => {
+      consumer = mongoDBEventStoreConsumer({
+        connectionString,
+        clientOptions: { directConnection: true },
+        processors: [dummyProcessor],
+      });
+    });
+    afterEach(() => consumer.close());
+
+    void it('stops started consumer', withDeadline, async () => {
+      await consumer.stop();
+
+      assertFalse(consumer.isRunning);
+    });
+  });
+});

@@ -1,10 +1,14 @@
 import { createServerFn } from "@tanstack/react-start";
 
-import { activeProjects, runtime } from "#/app/runtime";
+import { runHarvestAccess } from "#/app/projectHarvestClient";
+import { activeProjects } from "#/app/runtime";
 
-import type { Project, QuestionsReply } from "./domain";
+import type { Project } from "./domain";
+import type { StoredQuestionsReply } from "./domain/values/harvest.values";
 import { findProject } from "./lib/projects.utils";
-import { listQuestions as listQuestionsWorkflow } from "./workflows/listQuestions";
+import { activateProjectHarvest } from "./workflows/activateProjectHarvest";
+import { readProjectHarvest } from "./workflows/readProjectHarvest";
+import { refreshProjectHarvest } from "./workflows/refreshProjectHarvest";
 
 export type { FailedChannel, QuestionsReply, QuestionsRow } from "./domain";
 
@@ -25,6 +29,24 @@ export const parseProject = (
 export const listQuestions = createServerFn({ method: "GET" })
   .validator((slug: string) => parseProject(slug).slug)
   // Which Projects are live depends on the token, which only the handler may read.
-  .handler(({ data: slug }): Promise<QuestionsReply> =>
-    listQuestionsWorkflow(runtime, parseProject(slug, activeProjects()))
-  );
+  .handler(({ data: slug }): Promise<StoredQuestionsReply> => {
+    const project = parseProject(slug, activeProjects());
+
+    return runHarvestAccess(readProjectHarvest(project));
+  });
+
+export const activateHarvest = createServerFn({ method: "POST" })
+  .validator((slug: string) => parseProject(slug).slug)
+  .handler(({ data: slug }): Promise<StoredQuestionsReply> => {
+    const project = parseProject(slug, activeProjects());
+
+    return runHarvestAccess(activateProjectHarvest(project));
+  });
+
+export const refreshHarvest = createServerFn({ method: "POST" })
+  .validator((slug: string) => parseProject(slug).slug)
+  .handler(({ data: slug }): Promise<StoredQuestionsReply> => {
+    const project = parseProject(slug, activeProjects());
+
+    return runHarvestAccess(refreshProjectHarvest(project));
+  });
