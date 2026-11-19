@@ -191,6 +191,8 @@ IDs refer to the replacement run's saved events; source changes can renumber mut
 | Fresh replay #1282/#1283/#1287 | Adding a source after completed collection moves the native alarm from regular cadence to immediate work; suspension/resume also requires the exact restored deadline. Targeted mutation confirmation remains pending. |
 | Fresh replay #833/#898 | Real schema-five upgrades preserve acquisition failures without retry records, as written by `2a23640f` before scheduling existed; successful active discovery and starter collection must clear them. Targeted mutation confirmation remains pending. |
 | Fresh replay #838 | A configuration change advances the cycle; archive work cannot use the previous generation's retained active range. Targeted mutation confirmation remains pending. |
+| Fresh replay #1015/#1016/#1033 | A schema-eight snapshot may retain a removed source's older generation. Reading completed retained work must not invent an active cycle; a retained failure remains partial when a manual retry is queued within cooldown. Targeted mutation confirmation remains pending. |
+| Fresh replay #1396/#1407/#1423 | Actual reconciliation, archive, starter and comment acquisition journeys require successful funnel lines with `failed=0`. Targeted mutation confirmation remains pending. |
 
 ## Interrupted run
 

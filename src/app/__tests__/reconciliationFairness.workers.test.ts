@@ -1,4 +1,4 @@
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Logger } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { Discord } from "../../features/question-finder/services/discord";
@@ -41,6 +41,7 @@ describe("reconciliation and pending thread fairness", () => {
         storage.sql.exec(
           "INSERT INTO reconciliation_work(work_id,channel_id,stream_id,kind) VALUES ('reconcile:recent:800','800','800','recent')"
         );
+        const lines: string[] = [];
         await scheduled.runtime.runPromise(
           acquireStoredPage(project, "test").pipe(
             Effect.provide(
@@ -58,12 +59,23 @@ describe("reconciliation and pending thread fairness", () => {
                       : Effect.die("Expected the queued reconciliation turn"),
                 })
               )
+            ),
+            Effect.provide(
+              Logger.layer([
+                Logger.make(({ message }) => {
+                  lines.push(String(message));
+                }),
+              ])
             )
           )
         );
         await expect(
           scheduled.runtime.runPromise(store.forumRequest("800", generation))
         ).resolves.toMatchObject({ kind: "starter", thread: { id: "102" } });
+        expect(lines).toStrictEqual([
+          "harvest ingestion inserted=0 updated=0 unchanged=0",
+          "harvest acquisition channel=1 failed=0 pending=0",
+        ]);
       }
     );
   });
