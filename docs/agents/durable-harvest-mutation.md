@@ -202,6 +202,7 @@ Baseline IDs below describe the original gaps; source changes renumbered the fre
 | Fresh replay #1575 | The existing crash-before-activation proof now requires its recovery alarm thirty seconds in the future; merely checking that an alarm existed missed a past deadline. The after-activation crash still requires its immediate wake. Confirmed by fresh mutation replay. |
 | Fresh replay #1608/#1610/#1614/#1615 | The existing held-IO concurrency journey checks that Refresh preserves the recovery wake, a duplicate alarm remains pending with the first runner, and only one acquisition (including discovery) occurs. Confirmed by fresh mutation replay. |
 | Fresh replay #1470 | Timing confirmation exposed a processing-log ordinal gap. The existing diagnostic test now processes the second Channel after an empty first Channel and requires `channel=2`, retaining exact counts and privacy checks. Its small follow-up mutation confirmation remains pending. |
+| Fresh replay #1496 | With a larger allowance, an empty already-current transition eventually returns through the twenty-second outer deadline. The completed-Harvest test now uses an unadvanced simulated clock, requiring completion independently of that deadline. Its small follow-up confirmation remains pending. |
 
 ## Interrupted run
 

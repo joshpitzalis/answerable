@@ -3,6 +3,7 @@ import { evictDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
+import { SimulatedClock } from "xstate";
 
 import { Judge } from "../../features/question-finder/services/judge";
 import {
@@ -81,7 +82,8 @@ describe("saved Project reads", () => {
       stub,
       unavailableDiscord,
       Judge.everythingAnswerable,
-      (runtime) => harvestStoredProject(runtime, project, "live")
+      (runtime) =>
+        harvestStoredProject(runtime, project, "live", new SimulatedClock())
     );
 
     expect(replay).toStrictEqual(reply);
